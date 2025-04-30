@@ -1,0 +1,3 @@
+[{"Lipe",{"Gamer",false,1,0}},
+ {"Loren",{"NotGamer",false,1,0}},
+ {"teste",{"teste",false,1,0}}].
