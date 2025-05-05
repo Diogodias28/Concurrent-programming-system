@@ -1,4 +1,5 @@
 -module(game).
+-import(gen_tcp, [listen/2]).
 -export([start/1]).
 
 -define(FRICTION, 0.98).
@@ -10,7 +11,7 @@
 -define(ARENA_WIDTH, 800).
 
 start(Port) ->
-    {ok, LSock} = gen_tcp:start_listen(Port, [
+    {ok, LSock} = gen_tcp:listen(Port, [
         {packet, line}, {reuseaddr, true}, {active, false}
     ]),
     spawn(fun() -> acceptor(LSock) end).
@@ -18,7 +19,7 @@ start(Port) ->
 acceptor(LSock) ->
     {ok, Sock} = gen_tcp:accept(LSock),
     spawn(fun() -> acceptor(LSock) end),
-    worker(Sock, {width / 4, (height - GUI_HEIGHT) / 2 + GUI_HEIGHT}, {0, 0}). %posição, velocidade 
+    worker(Sock, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}). %posição, velocidade 
 
 worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
     receive
@@ -29,17 +30,16 @@ worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
                     {AccX, AccY} = get_acceleration(Direction),
                     {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, AccX, AccY),
                     {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
-                    gen_tcp:send(Sock, io_lib:format("PLAYER_POS ~p~p~n", [NewPlayerX, NewPlayerY])),
+                    gen_tcp:send(Sock, io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY])),
                     worker(Sock, {NewPlayerX, NewPlayerY}, {NewPlayerSpeedX, NewPlayerSpeedY});
-                {stop, Direction} ->
-                    {AccX, AccY} = get_deceleration(Direction, PlayerSpeedX, PlayerSpeedY),
-                    {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, AccX, AccY),
+                {stop, _} ->
+                    {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, 0, 0),
                     {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
-                    gen_tcp:send(Sock, io_lib:format("PLAYER_POS ~p~p~n", [NewPlayerX, NewPlayerY])),
+                    gen_tcp:send(Sock, io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY])),
                     worker(Sock, {NewPlayerX, NewPlayerY}, {NewPlayerSpeedX, NewPlayerSpeedY});
                 {error, Reason} ->
                     io:format("Invalid input: ~s~n", [Reason]),
-                    worker(Sock, {NewPlayerX, NewPlayerY}, {NewPlayerSpeedX, NewPlayerSpeedY})
+                    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY})
             end;
         {tcp_closed, Sock} ->
             io:format("Socket closed. ~n"),
@@ -60,8 +60,8 @@ parse_input(Data) ->
     end.
 
 calculate_velocity(SpeedX, SpeedY, AccX, AccY) ->
-    NewSpeedX = speed_limit(SpeedX + AccX, -MAX_SPEED, MAX_SPEED) * FRICTION,
-    NewSpeedY = speed_limit(SpeedY + AccY, -MAX_SPEED, MAX_SPEED) * FRICTION,
+    NewSpeedX = speed_limit(SpeedX + AccX, -?MAX_SPEED, ?MAX_SPEED) * ?FRICTION,
+    NewSpeedY = speed_limit(SpeedY + AccY, -?MAX_SPEED, ?MAX_SPEED) * ?FRICTION,
     {NewSpeedX, NewSpeedY}.
 
 calculate_position(X, Y, SpeedX, SpeedY) ->
@@ -78,10 +78,10 @@ speed_limit(Vel, Max, Min) ->
     end.
 
 get_acceleration(left) ->
-    {-(INITIAL_ACCELERATION + 1 * ACCELERATION_INCREMENT), 0};
+    {-(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT), 0};
 get_acceleration(right) ->
-    {INITIAL_ACCELERATION + 1 * ACCELERATION_INCREMENT, 0};
+    {?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT, 0};
 get_acceleration(up) ->
-    {0, -(INITIAL_ACCELERATION + 1 * ACCELERATION_INCREMENT)};
+    {0, -(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT)};
 get_acceleration(down) ->
-    {0, INITIAL_ACCELERATION + 1 * ACCELERATION_INCREMENT}.    
+    {0, ?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT}.    
