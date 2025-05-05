@@ -1,4 +1,9 @@
 import processing.core.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
 
 public class DueloArena extends PApplet {
     // Configurações da arena
@@ -109,7 +114,11 @@ public class DueloArena extends PApplet {
     public void settings() {
         size(ARENA_WIDTH, ARENA_HEIGHT + GUI_HEIGHT);
     }
-    
+
+    Socket socket;
+    BufferedReader in;
+    PrintWriter out;
+
     public void setup() {
         // Inicializa o jogador azul no centro esquerdo
         playerX = width / 4;
@@ -134,6 +143,16 @@ public class DueloArena extends PApplet {
         // Inicia o jogo
         gameRunning = true;
         lastTimeUpdate = millis();
+
+        try{
+            socket = new Socket("localhost", 12345);
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            out = new PrintWriter(socket.getOutputStream(), true);
+        }catch(IOException e){
+            e.printStackTrace();
+            exit();
+        }        
+
     }
     
     public void draw() {
@@ -163,6 +182,21 @@ public class DueloArena extends PApplet {
         }
         
         // Mostra status do modo de disparo (agora parte da GUI)
+
+
+        try{
+            if(in.ready()){
+                String serverMessage = in.readLine();
+                String[] parts = serverMessage.split(",");
+                if(parts[0].equals("PLAYER_POS")){
+                    playerX = float(parts[1]);
+                    playerY = float(parts[2]);
+                }
+            }
+        }catch(IOException e){
+            e.printStackTrace();
+        }
+
     }
     
     void drawGUI() {
@@ -340,10 +374,19 @@ public class DueloArena extends PApplet {
     
     public void keyPressed() {
         // Atualiza o estado das teclas quando pressionadas
-        if (keyCode == UP) upPressed = true;
-        if (keyCode == DOWN) downPressed = true;
-        if (keyCode == LEFT) leftPressed = true;
-        if (keyCode == RIGHT) rightPressed = true;
+        if (keyCode == UP){ 
+            upPressed = true;
+            out.println("MOVE, UP");
+        }else if (keyCode == DOWN){ 
+            downPressed = true;
+            out.println("MOVE, DOWN");
+        }else if (keyCode == LEFT) 
+            leftPressed = true;
+            out.println("MOVE, LEFT");
+        }else if (keyCode == RIGHT) 
+            rightPressed = true;
+            out.println("MOVE, RIGHT");
+        }
         
         // Tecla K para ativar/desativar modo de disparo
         if (key == 'k' || key == 'K') {
@@ -358,10 +401,19 @@ public class DueloArena extends PApplet {
     
     public void keyReleased() {
         // Atualiza o estado das teclas quando liberadas
-        if (keyCode == UP) upPressed = false;
-        if (keyCode == DOWN) downPressed = false;
-        if (keyCode == LEFT) leftPressed = false;
-        if (keyCode == RIGHT) rightPressed = false;
+        if (keyCode == UP) {
+            upPressed = false;
+            out.println("STOP, UP");
+        } else if (keyCode == DOWN){
+            downPressed = false;
+            out.println("STOP, DOWN");
+        }else if (keyCode == LEFT){
+            leftPressed = false;
+            out.println("STOP, LEFT");
+        }else if (keyCode == RIGHT){ 
+            rightPressed = false;
+            out.println("STOP, RIGHT");
+        }
     }
     
     public void mousePressed() {
@@ -398,7 +450,19 @@ public class DueloArena extends PApplet {
         lastTimeUpdate = millis();
     }
     
+    public void stop(){
+        try{
+            if(socket != null){
+                socket.close();
+            }
+        }catch (IOException e){
+            e.printStackTrace();
+        }
+        super.stop();
+    }
+
     public static void main(String[] args) {
         PApplet.main("DueloArena");
     }
+
 }
