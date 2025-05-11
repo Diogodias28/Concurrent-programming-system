@@ -27,7 +27,9 @@ worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
         {tcp, Sock, Data} ->
             io:format("Received data: ~s~n", [Data]),
             case parse_input(Data) of
-                {move, Direction} -> 
+                {move, Direction} ->  
+                    Confirmation = io_lib:format("comando recebido move,~s\n", [string:to_upper(atom_to_list(Direction))]),
+                    gen_tcp:send(Sock, Confirmation),
                     {AccX, AccY} = get_acceleration(Direction),
                     {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, AccX, AccY),
                     {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
@@ -38,7 +40,9 @@ worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
                             io:format("Failed to send data: ~p~n", [Reason])
                     end,
                     worker(Sock, {NewPlayerX, NewPlayerY}, {NewPlayerSpeedX, NewPlayerSpeedY});
-                {stop, _} ->
+                {stop, Direction} ->
+                    Confirmation = io_lib:format("Comando recebido, stop,~s\n", [string:to_upper(atom_to_list(Direction))]),
+                    gen_tcp:send(Sock, Confirmation),
                     {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, 0, 0),
                     {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
                     Response = io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY]),
@@ -61,7 +65,7 @@ worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
     end.
 
 parse_input(Data) ->
-    case string:split(string:trim(Data), ",", all) of
+    case [string:trim(Part) || Part <- string:split(string:trim(Data), ",", all)] of
         ["MOVE", "UP"] -> {move, up};
         ["MOVE", "DOWN"] -> {move, down};
         ["MOVE", "LEFT"] -> {move, left};

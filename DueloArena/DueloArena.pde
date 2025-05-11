@@ -125,7 +125,7 @@ public class DueloArena extends PApplet {
     }
 
     public void setup() {
-        serverIP = "0.0.0.0";
+        serverIP = "192.168.1.189";
         serverPort = 1234;
         connectToServer();
         // Inicializa o jogador azul no centro esquerdo
@@ -198,21 +198,43 @@ public class DueloArena extends PApplet {
         // Mostra status do modo de disparo (agora parte da GUI)
 
 
-        try{
-            if(in.ready()){
-                String serverMessage = in.readLine();
-                String[] parts = serverMessage.split(",");
-                if(parts[0].equals("PLAYER_POS")){
-                    playerX = float(parts[1]);
-                    playerY = float(parts[2]);
-                }
-            }
-        }catch(IOException e){
-            e.printStackTrace();
-        }
+     try {
+          while (in != null && in.ready()) {
+              String serverMessage = in.readLine();
+              println("Mensagem do servidor: " + serverMessage);
+              
+              if (serverMessage.startsWith("COMMAND_ACCEPTED")) {
+                  // Mostra confirmação na GUI
+                  String command = serverMessage.substring(17); // Remove "COMMAND_ACCEPTED "
+                  showCommandFeedback("Comando aceito: " + command);
+              } 
+              else if (serverMessage.startsWith("PLAYER_POS")) {
+                  String[] parts = serverMessage.split(" ");
+                  if (parts.length >= 3) {
+                      playerX = Float.parseFloat(parts[1]);
+                      playerY = Float.parseFloat(parts[2]);
+                  }
+              }
+              else if (serverMessage.startsWith("ERROR")) {
+                  showCommandFeedback(serverMessage.substring(6)); // Remove "ERROR: "
+              }
+          }
+      } catch (IOException e) {
+          println("Erro ao ler do servidor: " + e.getMessage());
+          e.printStackTrace();
+      }
 
     }
     
+    
+   void showCommandFeedback(String message) {
+    // Mostra o feedback temporariamente (por 1 segundo)
+    fill(0);
+    textSize(16);
+    text(message, width/2, GUI_HEIGHT - 20);
+    textSize(24);
+    }
+
     void drawGUI() {
         // Fundo da GUI
         fill(220);
