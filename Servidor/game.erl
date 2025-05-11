@@ -12,7 +12,7 @@
 
 start(Port) ->
     {ok, LSock} = gen_tcp:listen(Port, [
-        {packet, line}, {reuseaddr, true}, {active, false}, {ip, {0,0,0,0}}
+        {packet, line}, {reuseaddr, true}, {active, false}
     ]),
     spawn(fun() -> acceptor(LSock) end).
 
@@ -22,6 +22,7 @@ acceptor(LSock) ->
     worker(Sock, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}). %posição, velocidade 
 
 worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
+    inet:setopts(Sock, [{active, once}]),
     receive
         {tcp, Sock, Data} ->
             io:format("Received data: ~s~n", [Data]),
@@ -30,12 +31,22 @@ worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
                     {AccX, AccY} = get_acceleration(Direction),
                     {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, AccX, AccY),
                     {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
-                    gen_tcp:send(Sock, io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY])),
+                    Response = io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY]),
+                    case gen_tcp:send(Sock, Response) of
+                        ok -> ok;
+                        {error, Reason} ->
+                            io:format("Failed to send data: ~p~n", [Reason])
+                    end,
                     worker(Sock, {NewPlayerX, NewPlayerY}, {NewPlayerSpeedX, NewPlayerSpeedY});
                 {stop, _} ->
                     {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, 0, 0),
                     {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
-                    gen_tcp:send(Sock, io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY])),
+                    Response = io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY]),
+                    case gen_tcp:send(Sock, Response) of
+                        ok -> ok;
+                        {error, Reason} ->
+                            io:format("Failed to send data: ~p~n", [Reason])
+                    end,
                     worker(Sock, {NewPlayerX, NewPlayerY}, {NewPlayerSpeedX, NewPlayerSpeedY});
                 {error, Reason} ->
                     io:format("Invalid input: ~s~n", [Reason]),
@@ -43,6 +54,9 @@ worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
             end;
         {tcp_closed, Sock} ->
             io:format("Socket closed. ~n"),
+            ok;
+        {tcp_error, Sock, Reason} ->
+            io:format("Socket error: ~p~n", [Reason]),
             ok
     end.
 
@@ -84,4 +98,4 @@ get_acceleration(right) ->
 get_acceleration(up) ->
     {0, -(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT)};
 get_acceleration(down) ->
-    {0, ?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT}.    
+    {0, ?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT}.   
