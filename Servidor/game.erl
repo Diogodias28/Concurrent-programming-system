@@ -12,7 +12,7 @@
 
 start(Port) ->
     {ok, LSock} = gen_tcp:listen(Port, [
-        {packet, line}, {reuseaddr, true}, {active, false}
+        {packet, line}, {reuseaddr, true}, {active, false}, {ip, {0,0,0,0}}
     ]),
     spawn(fun() -> acceptor(LSock) end).
 

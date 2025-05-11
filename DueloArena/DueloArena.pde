@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import javax.swing.JOptionPane;
 
 public class DueloArena extends PApplet {
     // Configurações da arena
@@ -18,6 +19,14 @@ public class DueloArena extends PApplet {
     final float INITIAL_ACCELERATION = 0.01f;
     final float ACCELERATION_INCREMENT = 0.01f;
     final float FRICTION = 0.98f;
+    
+    // Conexão por IP
+    String serverIP = "";
+    int serverPort = 1234;
+    Socket socket;
+    BufferedReader in;
+    PrintWriter out;
+    boolean connected = false;
     
     // Configurações de projéteis
     final int PROJECTILE_SIZE = 10;
@@ -115,11 +124,10 @@ public class DueloArena extends PApplet {
         size(ARENA_WIDTH, ARENA_HEIGHT + GUI_HEIGHT);
     }
 
-    Socket socket;
-    BufferedReader in;
-    PrintWriter out;
-
     public void setup() {
+        serverIP = "0.0.0.0";
+        serverPort = 1234;
+        connectToServer();
         // Inicializa o jogador azul no centro esquerdo
         playerX = width / 4;
         playerY = (height - GUI_HEIGHT) / 2 + GUI_HEIGHT;
@@ -144,15 +152,21 @@ public class DueloArena extends PApplet {
         gameRunning = true;
         lastTimeUpdate = millis();
 
-        try{
-            socket = new Socket("localhost", 12345);
+    }
+    
+    void connectToServer() {
+        try {
+            println("Conectando ao servidor " + serverIP + ":" + serverPort + "...");
+            socket = new Socket(serverIP, serverPort);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             out = new PrintWriter(socket.getOutputStream(), true);
-        }catch(IOException e){
-            e.printStackTrace();
+            connected = true;
+            println("Conectado com sucesso!");
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(null, 
+                "Falha na conexão com o servidor:\n" + e.getMessage());
             exit();
-        }        
-
+        }
     }
     
     public void draw() {
@@ -266,9 +280,6 @@ public class DueloArena extends PApplet {
             }
         }
         
-        // Atualiza a posição do jogador
-        updatePlayer();
-        
         // Atualiza projéteis
         updateProjectiles();
         
@@ -279,58 +290,6 @@ public class DueloArena extends PApplet {
         }
     }
     
-    void updatePlayer() {
-        // Calcula aceleração baseada no tempo de pressão das teclas
-        float currentAccelX = 0;
-        float currentAccelY = 0;
-        
-        if (leftPressed) {
-            leftPressedTime++;
-            currentAccelX -= INITIAL_ACCELERATION + (leftPressedTime * ACCELERATION_INCREMENT);
-        } else {
-            leftPressedTime = 0;
-        }
-        
-        if (rightPressed) {
-            rightPressedTime++;
-            currentAccelX += INITIAL_ACCELERATION + (rightPressedTime * ACCELERATION_INCREMENT);
-        } else {
-            rightPressedTime = 0;
-        }
-        
-        if (upPressed) {
-            upPressedTime++;
-            currentAccelY -= INITIAL_ACCELERATION + (upPressedTime * ACCELERATION_INCREMENT);
-        } else {
-            upPressedTime = 0;
-        }
-        
-        if (downPressed) {
-            downPressedTime++;
-            currentAccelY += INITIAL_ACCELERATION + (downPressedTime * ACCELERATION_INCREMENT);
-        } else {
-            downPressedTime = 0;
-        }
-        
-        // Aplica aceleração
-        playerSpeedX += currentAccelX;
-        playerSpeedY += currentAccelY;
-        
-        // Limita a velocidade máxima
-        playerSpeedX = constrain(playerSpeedX, -MAX_SPEED, MAX_SPEED);
-        playerSpeedY = constrain(playerSpeedY, -MAX_SPEED, MAX_SPEED);
-        
-        // Aplica atrito (inércia)
-        playerSpeedX *= FRICTION;
-        playerSpeedY *= FRICTION;
-        
-        // Atualiza posição
-        playerX += playerSpeedX;
-        playerY += playerSpeedY;
-        
-        // Verifica colisões com as paredes
-        checkWallCollisions();
-    }
     
     void updateProjectiles() {
         // Atualiza todos os projéteis e remove os inativos
@@ -374,16 +333,16 @@ public class DueloArena extends PApplet {
     
     public void keyPressed() {
         // Atualiza o estado das teclas quando pressionadas
-        if (keyCode == UP){ 
+        if (keyCode == UP || key == 'w' || key == 'W'){ 
             upPressed = true;
             out.println("MOVE, UP");
-        }else if (keyCode == DOWN){ 
+        }else if (keyCode == DOWN || key == 's' || key == 'S'){ 
             downPressed = true;
             out.println("MOVE, DOWN");
-        }else if (keyCode == LEFT) 
+        }else if (keyCode == LEFT || key == 'a' || key == 'A'){
             leftPressed = true;
             out.println("MOVE, LEFT");
-        }else if (keyCode == RIGHT) 
+        }else if (keyCode == RIGHT || key == 'd' || key == 'D'){
             rightPressed = true;
             out.println("MOVE, RIGHT");
         }
@@ -401,16 +360,16 @@ public class DueloArena extends PApplet {
     
     public void keyReleased() {
         // Atualiza o estado das teclas quando liberadas
-        if (keyCode == UP) {
+        if (keyCode == UP || key == 'w' || key == 'W') {
             upPressed = false;
             out.println("STOP, UP");
-        } else if (keyCode == DOWN){
+        } else if (keyCode == DOWN || key == 's' || key == 'S'){
             downPressed = false;
             out.println("STOP, DOWN");
-        }else if (keyCode == LEFT){
+        }else if (keyCode == LEFT || key == 'a' || key == 'A'){
             leftPressed = false;
             out.println("STOP, LEFT");
-        }else if (keyCode == RIGHT){ 
+        }else if (keyCode == RIGHT || key == 'd' || key == 'D'){ 
             rightPressed = false;
             out.println("STOP, RIGHT");
         }
