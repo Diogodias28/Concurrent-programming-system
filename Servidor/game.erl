@@ -78,8 +78,8 @@ parse_input(Data) ->
     end.
 
 calculate_velocity(SpeedX, SpeedY, AccX, AccY) ->
-    NewSpeedX = speed_limit(SpeedX + AccX, -?MAX_SPEED, ?MAX_SPEED) * ?FRICTION,
-    NewSpeedY = speed_limit(SpeedY + AccY, -?MAX_SPEED, ?MAX_SPEED) * ?FRICTION,
+    NewSpeedX = speed_limit(SpeedX + AccX, ?MAX_SPEED, -?MAX_SPEED) * ?FRICTION,
+    NewSpeedY = speed_limit(SpeedY + AccY, ?MAX_SPEED, -?MAX_SPEED) * ?FRICTION,
     {NewSpeedX, NewSpeedY}.
 
 calculate_position(X, Y, SpeedX, SpeedY) ->
