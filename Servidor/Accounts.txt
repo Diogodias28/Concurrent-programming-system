@@ -1,5 +1,8 @@
 [{"Lipe",{"Gamer",false,1,0}},
  {"Loren",{"NotGamer",false,1,0}},
+ {"hugo",{"123456",false,1,0}},
+ {"ola",{"ola1234",false,1,0}},
+ {"test",{"test123",false,1,0}},
  {"teste",{"teste",false,1,0}},
  {"user1",{"pass1",false,1,0}},
  {"user2",{"pass2",false,2,0}},

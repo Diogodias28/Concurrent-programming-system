@@ -1,6 +1,7 @@
 -module(game).
 -import(gen_tcp, [listen/2]).
--export([start/1]).
+-import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0, queue/1, get_queue/0]).
+-export([start/1, authenticator/1, parse_auth_input/1]).
 
 -define(FRICTION, 0.98).
 -define(INITIAL_ACCELERATION, 0.01).
@@ -11,15 +12,111 @@
 -define(ARENA_WIDTH, 800).
 
 start(Port) ->
-    {ok, LSock} = gen_tcp:listen(Port, [
-        {packet, line}, {reuseaddr, true}, {active, false}
-    ]),
-    spawn(fun() -> acceptor(LSock) end).
+    io:format("Starting game server on port ~p~n", [Port]),
+    % Start the account server first
+    case server:start() of
+        {ok, _Pid} ->
+            io:format("Account server started successfully~n"),
+            {ok, LSock} = gen_tcp:listen(Port, [
+                {packet, line}, {reuseaddr, true}, {active, false}
+            ]),
+            io:format("Listening for connections...~n"),
+            spawn(fun() -> acceptor(LSock) end);
+        {error, already_started} ->
+            io:format("Account server already running~n"),
+            {ok, LSock} = gen_tcp:listen(Port, [
+                {packet, line}, {reuseaddr, true}, {active, false}
+            ]),
+            io:format("Listening for connections...~n"),
+            spawn(fun() -> acceptor(LSock) end);
+        Error ->
+            io:format("Failed to start account server: ~p~n", [Error]),
+            Error
+    end.
 
 acceptor(LSock) ->
     {ok, Sock} = gen_tcp:accept(LSock),
+    {ok, {IP, Port}} = inet:peername(Sock),
+    io:format("New connection from ~p:~p~n", [IP, Port]),
     spawn(fun() -> acceptor(LSock) end),
-    worker(Sock, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}). %posição, velocidade 
+    case authenticator(Sock) of
+        {ok, Username} ->
+            io:format("Authentication successful for ~s from ~p:~p~n", [Username, IP, Port]),
+            worker(Sock, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0});
+        {error, Reason} ->
+            io:format("Connection closed (~p) from ~p:~p~n", [Reason, IP, Port]),
+            gen_tcp:close(Sock)
+    end.
+
+authenticator(Sock) ->
+    {ok, {IP, _}} = inet:peername(Sock),
+    inet:setopts(Sock, [{active, once}]),
+    receive
+        {tcp, Sock, Data} ->
+            io:format("Auth attempt from ~p: ~s", [IP, Data]),
+            case parse_auth_input(Data) of
+                {login, Username, Password} ->
+                    handle_login(Sock, IP, Username, Password);
+                {create_account, Username, Password} ->
+                    handle_create_account(Sock, IP, Username, Password);
+                {error, Reason} ->
+                    io:format("Invalid auth command from ~p: ~p~n", [IP, Reason]),
+                    gen_tcp:send(Sock, "INVALID_COMMAND\n"),
+                    authenticator(Sock)
+            end;
+        {tcp_closed, Sock} ->
+            io:format("Client from ~p closed connection during auth~n", [IP]),
+            {error, closed};
+        {tcp_error, Sock, Reason} ->
+            io:format("Socket error from ~p during auth: ~p~n", [IP, Reason]),
+            {error, Reason}
+    end.
+
+handle_login(Sock, IP, Username, Password) ->
+    case server:login(Username, Password) of
+        ok ->
+            io:format("Login successful for ~s from ~p~n", [Username, IP]),
+            gen_tcp:send(Sock, "LOGIN_SUCCESS\n"),
+            {ok, Username};
+        invalid ->
+            io:format("Failed login for ~s from ~p~n", [Username, IP]),
+            gen_tcp:send(Sock, "LOGIN_FAILED\n"),
+            authenticator(Sock)
+    end.
+
+handle_create_account(Sock, IP, Username, Password) ->
+    case server:create_account(Username, Password) of
+        ok ->
+            io:format("Account created for ~s from ~p~n", [Username, IP]),
+            gen_tcp:send(Sock, "ACCOUNT_CREATED\n"),
+            % Immediately attempt login with new credentials
+            case server:login(Username, Password) of
+                ok ->
+                    io:format("Auto-login successful for ~s from ~p~n", [Username, IP]),
+                    gen_tcp:send(Sock, "LOGIN_SUCCESS\n"),
+                    {ok, Username};
+                invalid ->
+                    io:format("Auto-login failed for ~s from ~p~n", [Username, IP]),
+                    gen_tcp:send(Sock, "ACCOUNT_CREATED_LOGIN_FAILED\n"),
+                    authenticator(Sock)
+            end;
+        user_exists ->
+            io:format("Username ~s already exists (from ~p)~n", [Username, IP]),
+            gen_tcp:send(Sock, "USERNAME_TAKEN\n"),
+            authenticator(Sock)
+    end.
+
+% Rest of your existing functions...
+parse_auth_input(Data) ->
+    Trimmed = string:trim(Data),
+    case string:split(Trimmed, ":", all) of
+        ["LOGIN", Username, Password] ->
+            {login, string:trim(Username), string:trim(Password)};
+        ["CREATE_ACCOUNT", Username, Password] ->
+            {create_account, string:trim(Username), string:trim(Password)};
+        _ ->
+            {error, "Invalid authentication command"}
+    end.
 
 worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
     inet:setopts(Sock, [{active, once}]),

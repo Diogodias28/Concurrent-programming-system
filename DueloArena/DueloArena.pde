@@ -7,436 +7,606 @@ import java.net.Socket;
 import javax.swing.JOptionPane;
 
 public class DueloArena extends PApplet {
-    // Configurações da arena
-    final int ARENA_WIDTH = 800;
-    final int ARENA_HEIGHT = 600;
-    final int WALL_THICKNESS = 10;
-    final int GUI_HEIGHT = 70; // Aumentei a altura da GUI para acomodar melhor o texto
+    // Game states
+    final int STATE_IP_INPUT = 0;
+    final int STATE_CONNECTING = 1;
+    final int STATE_LOGIN = 2;
+    final int STATE_CREATE_ACCOUNT = 3;
+    final int STATE_QUEUE = 4;
+    final int STATE_GAME = 5;
+    int currentState = STATE_IP_INPUT;
     
-    // Configurações do jogador
-    final int PLAYER_SIZE = 20;
-    final float MAX_SPEED = 6;
-    final float INITIAL_ACCELERATION = 0.01f;
-    final float ACCELERATION_INCREMENT = 0.01f;
-    final float FRICTION = 0.98f;
-    
-    // Conexão por IP
+    // Connection variables
     String serverIP = "";
+    String inputIP = "";
     int serverPort = 1234;
+    String inputPort = "1234";
     Socket socket;
     BufferedReader in;
     PrintWriter out;
     boolean connected = false;
+    boolean enteringIP = true;
     
-    // Configurações de projéteis
-    final int PROJECTILE_SIZE = 10;
-    final float PROJECTILE_SPEED = 8;
-    final int PLAYER_COOLDOWN = 1000; // ms entre disparos do jogador
-    final int OPPONENT_COOLDOWN = PLAYER_COOLDOWN; // Igual ao do jogador
-    int lastPlayerProjectileTime = 0;
-    int lastOpponentProjectileTime = 0;
+    // Login screen variables
+    String username = "";
+    String password = "";
+    boolean enteringUsername = true;
+    boolean loginError = false;
+    String loginErrorMessage = "";
     
-    // Posição e velocidade dos jogadores
-    float playerX, playerY; // Jogador azul (controlado)
-    float playerSpeedX, playerSpeedY;
-    float opponentX, opponentY; // Jogador vermelho (estático)
+    // Create account variables
+    String newUsername = "";
+    String newPassword = "";
+    String confirmPassword = "";
+    boolean creatingUsername = true;
+    boolean creatingPassword = false;
+    boolean creatingConfirm = false;
+    boolean createAccountError = false;
+    String createAccountErrorMessage = "";
     
-    // Teclas pressionadas e tempo de pressão
-    boolean upPressed, downPressed, leftPressed, rightPressed;
-    boolean shootModeActive = false; // Modo de disparo do oponente
-    int upPressedTime, downPressedTime, leftPressedTime, rightPressedTime;
+    // Queue screen variables
+    boolean inQueue = false;
+    Button queueButton;
     
-    // Lista de projéteis
-    ArrayList<Projectile> projectiles = new ArrayList<Projectile>();
-    
-    // Variáveis da GUI
-    int blueScore = 0;
-    int redScore = 0;
-    int gameTime = 120; // 2 minutos em segundos
-    int lastTimeUpdate;
-    boolean gameRunning = false;
-    
-    // Classe para representar projéteis
-    class Projectile {
-        float x, y;
-        float speedX, speedY;
-        int size;
-        boolean active;
-        int owner; // 0 para azul, 1 para vermelho
-        
-        Projectile(float x, float y, float targetX, float targetY, int owner) {
-            this.x = x;
-            this.y = y;
-            this.size = PROJECTILE_SIZE;
-            this.active = true;
-            this.owner = owner;
-            
-            // Calcula direção para o cursor
-            float dx = targetX - x;
-            float dy = targetY - y;
-            float distance = sqrt(dx*dx + dy*dy);
-            
-            // Normaliza e multiplica pela velocidade
-            this.speedX = (dx/distance) * PROJECTILE_SPEED;
-            this.speedY = (dy/distance) * PROJECTILE_SPEED;
-        }
-        
-        void update() {
-            if (!active) return;
-            
-            // Move o projétil
-            x += speedX;
-            y += speedY;
-            
-            // Verifica colisões com paredes
-            if (x - size/2 < WALL_THICKNESS || x + size/2 > width - WALL_THICKNESS ||
-                y - size/2 < GUI_HEIGHT + WALL_THICKNESS || y + size/2 > height - WALL_THICKNESS) {
-                active = false;
-            }
-            
-            // Verifica colisão com jogadores
-            if (owner == 0) { // Projétil do azul
-                if (dist(x, y, opponentX, opponentY) < (PROJECTILE_SIZE + PLAYER_SIZE)/2) {
-                    active = false;
-                    blueScore++;
-                }
-            } else { // Projétil do vermelho
-                if (dist(x, y, playerX, playerY) < (PROJECTILE_SIZE + PLAYER_SIZE)/2) {
-                    active = false;
-                    redScore++;
-                }
-            }
-        }
-        
-        void display() {
-            if (!active) return;
-            
-            if (owner == 0) {
-                fill(0, 0, 255); // Azul
-            } else {
-                fill(255, 0, 0); // Vermelho
-            }
-            ellipse(x, y, size, size);
-        }
-    }
-    
+    // UI elements
+    Button loginButton;
+    Button createAccountButton;
+    Button backToLoginButton;
+    Button submitCreateButton;
+
     public void settings() {
-        size(ARENA_WIDTH, ARENA_HEIGHT + GUI_HEIGHT);
+        size(800, 600);
     }
 
     public void setup() {
-        serverIP = "192.168.1.189";
-        serverPort = 1234;
-        connectToServer();
-        // Inicializa o jogador azul no centro esquerdo
-        playerX = width / 4;
-        playerY = (height - GUI_HEIGHT) / 2 + GUI_HEIGHT;
-        playerSpeedX = 0;
-        playerSpeedY = 0;
-        
-        // Inicializa o jogador vermelho no centro direito
-        opponentX = 3 * width / 4;
-        opponentY = (height - GUI_HEIGHT) / 2 + GUI_HEIGHT;
-        
-        // Inicializa tempos de pressão
-        upPressedTime = downPressedTime = leftPressedTime = rightPressedTime = 0;
-        
-        // Configuração visual básica
-        ellipseMode(CENTER);
-        noStroke();
-        smooth();
-        textAlign(CENTER, CENTER);
-        textSize(24);
-        
-        // Inicia o jogo
-        gameRunning = true;
-        lastTimeUpdate = millis();
-
-    }
-    
-    void connectToServer() {
-        try {
-            println("Conectando ao servidor " + serverIP + ":" + serverPort + "...");
-            socket = new Socket(serverIP, serverPort);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            out = new PrintWriter(socket.getOutputStream(), true);
-            connected = true;
-            println("Conectado com sucesso!");
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(null, 
-                "Falha na conexão com o servidor:\n" + e.getMessage());
-            exit();
-        }
+      // Default values for testing
+      inputIP = "192.168.1.112";  // Default IP
+      inputPort = "1234";     // Default port
+      
+      // Initialize buttons
+      queueButton = new Button(width/2 - 100, height/2 - 25, 200, 50, "Enter Queue", color(200), color(0));
+      loginButton = new Button(width/2 - 75, 320, 150, 40, "Login", color(0, 150, 0), color(255));
+      createAccountButton = new Button(width/2 - 75, 380, 150, 40, "Create Account", color(50, 50, 200), color(255));
+      backToLoginButton = new Button(width/2 - 75, 400, 150, 40, "Back to Login", color(150, 150, 150), color(255));
+      submitCreateButton = new Button(width/2 - 75, 360, 150, 40, "Create Account", color(0, 150, 0), color(255));
     }
     
     public void draw() {
         background(240);
         
-        // Desenha a GUI
-        drawGUI();
-        
-        // Desenha a arena (paredes)
-        drawArena();
-        
-        // Atualiza o jogo se estiver rodando
-        if (gameRunning) {
-            updateGame();
+        switch(currentState) {
+            case STATE_IP_INPUT:
+                drawIPInputScreen();
+                break;
+            case STATE_CONNECTING:
+                drawConnectingScreen();
+                break;
+            case STATE_LOGIN:
+                drawLoginScreen();
+                break;
+            case STATE_CREATE_ACCOUNT:
+                drawCreateAccountScreen();
+                break;
+            case STATE_QUEUE:
+                drawQueueScreen();
+                break;
+            case STATE_GAME:
+                // Your game drawing would go here
+                break;
         }
-        
-        // Desenha os jogadores
-        fill(0, 0, 255); // Azul para o jogador principal
-        ellipse(playerX, playerY, PLAYER_SIZE, PLAYER_SIZE);
-        
-        fill(255, 0, 0); // Vermelho para o oponente
-        ellipse(opponentX, opponentY, PLAYER_SIZE, PLAYER_SIZE);
-        
-        // Desenha os projéteis
-        for (Projectile p : projectiles) {
-            p.display();
-        }
-        
-        // Mostra status do modo de disparo (agora parte da GUI)
-
-
-     try {
-          while (in != null && in.ready()) {
-              String serverMessage = in.readLine();
-              println("Mensagem do servidor: " + serverMessage);
-              
-              if (serverMessage.startsWith("COMMAND_ACCEPTED")) {
-                  // Mostra confirmação na GUI
-                  String command = serverMessage.substring(17); // Remove "COMMAND_ACCEPTED "
-                  showCommandFeedback("Comando aceito: " + command);
-              } 
-              else if (serverMessage.startsWith("PLAYER_POS")) {
-                  String[] parts = serverMessage.split(" ");
-                  if (parts.length >= 3) {
-                      playerX = Float.parseFloat(parts[1]);
-                      playerY = Float.parseFloat(parts[2]);
-                  }
-              }
-              else if (serverMessage.startsWith("ERROR")) {
-                  showCommandFeedback(serverMessage.substring(6)); // Remove "ERROR: "
-              }
-          }
-      } catch (IOException e) {
-          println("Erro ao ler do servidor: " + e.getMessage());
-          e.printStackTrace();
-      }
-
     }
     
-    
-   void showCommandFeedback(String message) {
-    // Mostra o feedback temporariamente (por 1 segundo)
-    fill(0);
-    textSize(16);
-    text(message, width/2, GUI_HEIGHT - 20);
-    textSize(24);
-    }
-
-    void drawGUI() {
-        // Fundo da GUI
-        fill(220);
-        rect(0, 0, width, GUI_HEIGHT);
-        
-        // Placar azul (esquerda)
-        fill(0, 0, 255);
-        text(blueScore, 50, GUI_HEIGHT/2 - 10);
-        
-        // Timer (centro)
+    void drawIPInputScreen() {
+        // Title
         fill(0);
-        int minutes = gameTime / 60;
-        int seconds = gameTime % 60;
-        String timeString = String.format("%d:%02d", minutes, seconds);
-        text(timeString, width/2, GUI_HEIGHT/2 - 10);
+        textAlign(CENTER, CENTER);
+        textSize(32);
+        text("Server Connection", width/2, 100);
         
-        // Placar vermelho (direita)
-        fill(255, 0, 0);
-        text(redScore, width - 50, GUI_HEIGHT/2 - 10);
+        // IP field (show default value if empty)
+        fill(255);
+        rect(width/2 - 150, 200, 300, 40);
+        fill(enteringIP ? 0 : 100);
+        textAlign(LEFT, CENTER);
+        textSize(20);
+        String ipDisplay = inputIP.isEmpty() ? "" : inputIP;
+        text(ipDisplay + (enteringIP ? "|" : ""), width/2 - 140, 220);
         
-        // Status do modo de disparo (abaixo do placar)
-        textSize(16);
-        if (shootModeActive) {
-            fill(255, 0, 0);
-            text("MODO DISPARO: ATIVO (K para desativar)", width/2, GUI_HEIGHT/2 + 15);
-        } else {
-            fill(150);
-            text("MODO DISPARO: INATIVO (K para ativar)", width/2, GUI_HEIGHT/2 + 15);
-        }
+        // Port field (show default value if empty)
+        fill(255);
+        rect(width/2 - 150, 260, 300, 40);
+        fill(!enteringIP ? 0 : 100);
+        String portDisplay = inputPort.isEmpty() ? "" : inputPort;
+        text(portDisplay + (!enteringIP ? "|" : ""), width/2 - 140, 280);
+        
+        // Connect button
+        loginButton.display();
+        loginButton.text = "Connect";
+        loginButton.y = 320;
+    }
+        
+    void drawConnectingScreen() {
+        fill(0);
+        textAlign(CENTER, CENTER);
         textSize(24);
-        
-        // Linha separadora
-        stroke(150);
-        line(0, GUI_HEIGHT, width, GUI_HEIGHT);
-        noStroke();
+        text("Connecting to " + serverIP + ":" + serverPort + "...", width/2, height/2);
     }
     
-    void drawArena() {
-        // Ajusta o desenho para a área da arena (abaixo da GUI)
-        pushMatrix();
-        translate(0, GUI_HEIGHT);
+    void drawLoginScreen() {
+        // Title
+        fill(0);
+        textAlign(CENTER, CENTER);
+        textSize(32);
+        text("Login", width/2, 100);
         
-        fill(150); // Cor das paredes
-        // Paredes: superior, inferior, esquerda, direita
-        rect(0, 0, width, WALL_THICKNESS);
-        rect(0, ARENA_HEIGHT - WALL_THICKNESS, width, WALL_THICKNESS);
-        rect(0, 0, WALL_THICKNESS, ARENA_HEIGHT);
-        rect(width - WALL_THICKNESS, 0, WALL_THICKNESS, ARENA_HEIGHT);
+        // Error message
+        if (loginError) {
+            fill(255, 0, 0);
+            textSize(16);
+            text(loginErrorMessage, width/2, 140);
+        }
         
-        popMatrix();
+        // Username field
+        fill(255);
+        rect(width/2 - 150, 200, 300, 40);
+        fill(enteringUsername ? 0 : 100);
+        textAlign(LEFT, CENTER);
+        textSize(20);
+        text(username.isEmpty() ? (enteringUsername ? "|" : "Username") : username, width/2 - 140, 220);
+        
+        // Password field
+        fill(255);
+        rect(width/2 - 150, 260, 300, 40);
+        fill(!enteringUsername ? 0 : 100);
+        String passwordDisplay = "";
+        for (int i = 0; i < password.length(); i++) passwordDisplay += "*";
+        text(password.isEmpty() ? (!enteringUsername ? "|" : "Password") : passwordDisplay, width/2 - 140, 280);
+        
+        // Login button
+        loginButton.display();
+        loginButton.text = "Login";
+        loginButton.y = 320;
+        
+        // Create Account button
+        createAccountButton.display();
+        createAccountButton.y = 380;
     }
     
-    void updateGame() {
-        // Atualiza o timer
-        if (millis() - lastTimeUpdate > 1000) {
-            gameTime--;
-            lastTimeUpdate = millis();
-            
-            if (gameTime <= 0) {
-                gameRunning = false;
-                gameTime = 0;
-                println("Game Over!");
-                println("Blue Score: " + blueScore);
-                println("Red Score: " + redScore);
-            }
+    void drawCreateAccountScreen() {
+        // Title
+        fill(0);
+        textAlign(CENTER, CENTER);
+        textSize(32);
+        text("Create Account", width/2, 80);
+        
+        // Error message
+        if (createAccountError) {
+            fill(255, 0, 0);
+            textSize(16);
+            text(createAccountErrorMessage, width/2, 120);
         }
         
-        // Atualiza projéteis
-        updateProjectiles();
+        // Username field
+        fill(255);
+        rect(width/2 - 150, 160, 300, 40);
+        fill(creatingUsername ? 0 : 100);
+        textAlign(LEFT, CENTER);
+        textSize(20);
+        text(newUsername.isEmpty() ? (creatingUsername ? "|" : "New Username") : newUsername, width/2 - 140, 180);
         
-        // Dispara projéteis do oponente se o modo estiver ativo
-        if (shootModeActive && millis() - lastOpponentProjectileTime > OPPONENT_COOLDOWN) {
-            projectiles.add(new Projectile(opponentX, opponentY, playerX, playerY, 1));
-            lastOpponentProjectileTime = millis();
-        }
+        // Password field
+        fill(255);
+        rect(width/2 - 150, 220, 300, 40);
+        fill(creatingPassword ? 0 : 100);
+        String newPasswordDisplay = "";
+        for (int i = 0; i < newPassword.length(); i++) newPasswordDisplay += "*";
+        text(newPassword.isEmpty() ? (creatingPassword ? "|" : "New Password") : newPasswordDisplay, width/2 - 140, 240);
+        
+        // Confirm Password field
+        fill(255);
+        rect(width/2 - 150, 280, 300, 40);
+        fill(creatingConfirm ? 0 : 100);
+        String confirmPasswordDisplay = "";
+        for (int i = 0; i < confirmPassword.length(); i++) confirmPasswordDisplay += "*";
+        text(confirmPassword.isEmpty() ? (creatingConfirm ? "|" : "Confirm Password") : confirmPasswordDisplay, width/2 - 140, 300);
+        
+        // Create Account button
+        submitCreateButton.display();
+        
+        // Back to Login button
+        backToLoginButton.display();
     }
     
-    
-    void updateProjectiles() {
-        // Atualiza todos os projéteis e remove os inativos
-        for (int i = projectiles.size() - 1; i >= 0; i--) {
-            Projectile p = projectiles.get(i);
-            p.update();
-            
-            if (!p.active) {
-                projectiles.remove(i);
-            }
-        }
-    }
-    
-    void checkWallCollisions() {
-        // Ajusta para coordenadas da arena (considerando a GUI)
-        float arenaTop = GUI_HEIGHT;
-        float arenaBottom = height;
+    void drawQueueScreen() {
+        // Title
+        fill(0);
+        textAlign(CENTER, CENTER);
+        textSize(32);
+        text("Matchmaking", width/2, 100);
         
-        // Verifica colisão com paredes laterais
-        if (playerX - PLAYER_SIZE/2 < WALL_THICKNESS) {
-            playerX = WALL_THICKNESS + PLAYER_SIZE/2;
-            playerSpeedX *= -0.7; // Rebote mais forte
-            redScore += 2; // Pontos para o vermelho quando azul bate na parede
-        } else if (playerX + PLAYER_SIZE/2 > width - WALL_THICKNESS) {
-            playerX = width - WALL_THICKNESS - PLAYER_SIZE/2;
-            playerSpeedX *= -0.7; // Rebote mais forte
-            redScore += 2; // Pontos para o vermelho quando azul bate na parede
-        }
+        // Queue status
+        textSize(24);
+        text(inQueue ? "Searching for opponent..." : "Press the button to queue", width/2, 180);
         
-        // Verifica colisão com paredes superior/inferior
-        if (playerY - PLAYER_SIZE/2 < arenaTop + WALL_THICKNESS) {
-            playerY = arenaTop + WALL_THICKNESS + PLAYER_SIZE/2;
-            playerSpeedY *= -0.7; // Rebote mais forte
-            redScore += 2; // Pontos para o vermelho quando azul bate na parede
-        } else if (playerY + PLAYER_SIZE/2 > arenaBottom - WALL_THICKNESS) {
-            playerY = arenaBottom - WALL_THICKNESS - PLAYER_SIZE/2;
-            playerSpeedY *= -0.7; // Rebote mais forte
-            redScore += 2; // Pontos para o vermelho quando azul bate na parede
-        }
-    }
-    
-    public void keyPressed() {
-        // Atualiza o estado das teclas quando pressionadas
-        if (keyCode == UP || key == 'w' || key == 'W'){ 
-            upPressed = true;
-            out.println("MOVE, UP");
-        }else if (keyCode == DOWN || key == 's' || key == 'S'){ 
-            downPressed = true;
-            out.println("MOVE, DOWN");
-        }else if (keyCode == LEFT || key == 'a' || key == 'A'){
-            leftPressed = true;
-            out.println("MOVE, LEFT");
-        }else if (keyCode == RIGHT || key == 'd' || key == 'D'){
-            rightPressed = true;
-            out.println("MOVE, RIGHT");
-        }
-        
-        // Tecla K para ativar/desativar modo de disparo
-        if (key == 'k' || key == 'K') {
-            shootModeActive = !shootModeActive;
-        }
-        
-        // Espaço para reiniciar o jogo
-        if (key == ' ' && !gameRunning) {
-            resetGame();
-        }
-    }
-    
-    public void keyReleased() {
-        // Atualiza o estado das teclas quando liberadas
-        if (keyCode == UP || key == 'w' || key == 'W') {
-            upPressed = false;
-            out.println("STOP, UP");
-        } else if (keyCode == DOWN || key == 's' || key == 'S'){
-            downPressed = false;
-            out.println("STOP, DOWN");
-        }else if (keyCode == LEFT || key == 'a' || key == 'A'){
-            leftPressed = false;
-            out.println("STOP, LEFT");
-        }else if (keyCode == RIGHT || key == 'd' || key == 'D'){ 
-            rightPressed = false;
-            out.println("STOP, RIGHT");
-        }
+        // Draw queue button
+        queueButton.display();
     }
     
     public void mousePressed() {
-        // Dispara projétil quando o mouse é clicado
-        if (gameRunning && millis() - lastPlayerProjectileTime > PLAYER_COOLDOWN) {
-            projectiles.add(new Projectile(playerX, playerY, mouseX, mouseY, 0));
-            lastPlayerProjectileTime = millis();
+        switch(currentState) {
+            case STATE_IP_INPUT:
+                handleIPInputClick();
+                break;
+            case STATE_LOGIN:
+                handleLoginScreenClick();
+                break;
+            case STATE_CREATE_ACCOUNT:
+                handleCreateAccountClick();
+                break;
+            case STATE_QUEUE:
+                handleQueueScreenClick();
+                break;
+            case STATE_GAME:
+                // Your game mouse handling
+                break;
         }
     }
     
-    void resetGame() {
-        // Reinicia as posições
-        playerX = width / 4;
-        playerY = (height - GUI_HEIGHT) / 2 + GUI_HEIGHT;
-        playerSpeedX = 0;
-        playerSpeedY = 0;
+    void handleIPInputClick() {
+        // Check if clicked on IP field
+        if (mouseX > width/2 - 150 && mouseX < width/2 + 150 && 
+            mouseY > 200 && mouseY < 240) {
+            enteringIP = true;
+            return;
+        }
         
-        opponentX = 3 * width / 4;
-        opponentY = (height - GUI_HEIGHT) / 2 + GUI_HEIGHT;
+        // Check if clicked on Port field
+        if (mouseX > width/2 - 150 && mouseX < width/2 + 150 && 
+            mouseY > 260 && mouseY < 300) {
+            enteringIP = false;
+            return;
+        }
         
-        // Reinicia os placares
-        blueScore = 0;
-        redScore = 0;
-        gameTime = 120;
-        
-        // Limpa projéteis
-        projectiles.clear();
-        
-        // Desativa modo de disparo
-        shootModeActive = false;
-        
-        // Reinicia o jogo
-        gameRunning = true;
-        lastTimeUpdate = millis();
+        // Check if clicked on Connect button
+        if (loginButton.isMouseOver()) {
+            attemptConnection();
+            return;
+        }
     }
     
-    public void stop(){
-        try{
-            if(socket != null){
+    void handleLoginScreenClick() {
+        // Check if clicked on username field
+        if (mouseX > width/2 - 150 && mouseX < width/2 + 150 && 
+            mouseY > 200 && mouseY < 240) {
+            enteringUsername = true;
+            return;
+        }
+        
+        // Check if clicked on password field
+        if (mouseX > width/2 - 150 && mouseX < width/2 + 150 && 
+            mouseY > 260 && mouseY < 300) {
+            enteringUsername = false;
+            return;
+        }
+        
+        // Check if clicked on login button
+        if (loginButton.isMouseOver()) {
+            attemptLogin();
+            return;
+        }
+        
+        // Check if clicked on create account button
+        if (createAccountButton.isMouseOver()) {
+            switchToCreateAccount();
+            return;
+        }
+    }
+    
+    void handleCreateAccountClick() {
+        // Check if clicked on username field
+        if (mouseX > width/2 - 150 && mouseX < width/2 + 150 && 
+            mouseY > 160 && mouseY < 200) {
+            creatingUsername = true;
+            creatingPassword = false;
+            creatingConfirm = false;
+            return;
+        }
+        
+        // Check if clicked on password field
+        if (mouseX > width/2 - 150 && mouseX < width/2 + 150 && 
+            mouseY > 220 && mouseY < 260) {
+            creatingUsername = false;
+            creatingPassword = true;
+            creatingConfirm = false;
+            return;
+        }
+        
+        // Check if clicked on confirm password field
+        if (mouseX > width/2 - 150 && mouseX < width/2 + 150 && 
+            mouseY > 280 && mouseY < 320) {
+            creatingUsername = false;
+            creatingPassword = false;
+            creatingConfirm = true;
+            return;
+        }
+        
+        // Check if clicked on create account button
+        if (submitCreateButton.isMouseOver()) {
+            attemptCreateAccount();
+            return;
+        }
+        
+        // Check if clicked on back to login button
+        if (backToLoginButton.isMouseOver()) {
+            currentState = STATE_LOGIN;
+            createAccountError = false;
+            return;
+        }
+    }
+    
+    void handleQueueScreenClick() {
+        if (queueButton.isMouseOver()) {
+            inQueue = !inQueue;
+            queueButton.text = inQueue ? "Leave Queue" : "Enter Queue";
+            
+            if (connected) {
+                out.println(inQueue ? "QUEUE_JOIN" : "QUEUE_LEAVE");
+            }
+        }
+    }
+    
+    void attemptConnection() {
+        if (inputIP.isEmpty() || inputPort.isEmpty()) {
+            JOptionPane.showMessageDialog(null, "Please enter both IP and Port");
+            return;
+        }
+        
+        try {
+            serverIP = inputIP;
+            serverPort = Integer.parseInt(inputPort);
+            currentState = STATE_CONNECTING;
+            
+            // Connect in a new thread to avoid freezing the UI
+            new Thread(() -> {
+                try {
+                    socket = new Socket(serverIP, serverPort);
+                    in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                    out = new PrintWriter(socket.getOutputStream(), true);
+                    connected = true;
+                    
+                    // Switch to login screen on success
+                    currentState = STATE_LOGIN;
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(null, 
+                        "Connection failed: " + e.getMessage());
+                    currentState = STATE_IP_INPUT;
+                }
+            }).start();
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(null, "Invalid port number");
+        }
+    }
+    
+    void attemptLogin() {
+        if (username.isEmpty() || password.isEmpty()) {
+            loginError = true;
+            loginErrorMessage = "Please enter both username and password";
+            return;
+        }
+        
+        if (connected) {
+            out.println("LOGIN:" + username + ":" + password);
+            
+            try {
+                String response = in.readLine();
+                if ("LOGIN_SUCCESS".equals(response)) {
+                    currentState = STATE_QUEUE;
+                    loginError = false;
+                } else {
+                    loginError = true;
+                    loginErrorMessage = "Login failed. Please try again.";
+                }
+            } catch (IOException e) {
+                loginError = true;
+                loginErrorMessage = "Connection error during login";
+            }
+        }
+    }
+    
+    void switchToCreateAccount() {
+            currentState = STATE_CREATE_ACCOUNT;
+            newUsername = "";
+            newPassword = "";
+            confirmPassword = "";
+            creatingUsername = true;
+            creatingPassword = false;
+            creatingConfirm = false;
+            createAccountError = false;
+        }
+        
+      void attemptCreateAccount() {
+        if (newUsername.isEmpty() || newPassword.isEmpty() || confirmPassword.isEmpty()) {
+            createAccountError = true;
+            createAccountErrorMessage = "Please fill all fields";
+            return;
+        }
+        
+        if (!newPassword.equals(confirmPassword)) {
+            createAccountError = true;
+            createAccountErrorMessage = "Passwords don't match";
+            return;
+        }
+        
+        if (newPassword.length() < 6) {
+            createAccountError = true;
+            createAccountErrorMessage = "Password must be at least 6 characters";
+            return;
+        }
+        
+        if (connected) {
+          out.println("CREATE_ACCOUNT:" + newUsername + ":" + newPassword);
+          
+          try {
+              String response = in.readLine();
+              if ("ACCOUNT_CREATED".equals(response)) {
+                  // Server will automatically attempt login
+                  String loginResponse = in.readLine();
+                  if ("LOGIN_SUCCESS".equals(loginResponse)) {
+                      currentState = STATE_QUEUE;
+                      createAccountError = false;
+                      loginError = false;
+                  } else {
+                      createAccountError = false;
+                      loginError = true;
+                      loginErrorMessage = "Account created but login failed";
+                  }
+              } else if ("USERNAME_TAKEN".equals(response)) {
+                  createAccountError = true;
+                  createAccountErrorMessage = "Username already taken";
+              } else {
+                  createAccountError = true;
+                  createAccountErrorMessage = "Account creation failed";
+              }
+          } catch (IOException e) {
+              createAccountError = true;
+              createAccountErrorMessage = "Connection error during account creation";
+          }
+      }
+    }
+    
+    public void keyPressed() {
+        switch(currentState) {
+            case STATE_IP_INPUT:
+                handleIPInputKeyPress();
+                break;
+            case STATE_LOGIN:
+                handleLoginScreenKeyPress();
+                break;
+            case STATE_CREATE_ACCOUNT:
+                handleCreateAccountKeyPress();
+                break;
+            case STATE_QUEUE:
+            case STATE_GAME:
+                // Your existing key handling
+                break;
+        }
+    }
+    
+    void handleIPInputKeyPress() {
+        if (key == BACKSPACE) {
+            if (enteringIP && inputIP.length() > 0) {
+                inputIP = inputIP.substring(0, inputIP.length() - 1);
+            } else if (!enteringIP && inputPort.length() > 0) {
+                inputPort = inputPort.substring(0, inputPort.length() - 1);
+            }
+        } else if (key == TAB) {
+            enteringIP = !enteringIP;
+        } else if (key == ENTER || key == RETURN) {
+            attemptConnection();
+        } else if (key >= 32 && key <= 126) { // Printable characters
+            if (enteringIP) {
+                inputIP += key;
+            } else {
+                // Only allow numbers for port
+                if (Character.isDigit(key)) {
+                    inputPort += key;
+                }
+            }
+        }
+    }
+    
+    void handleLoginScreenKeyPress() {
+        if (key == BACKSPACE) {
+            if (enteringUsername && username.length() > 0) {
+                username = username.substring(0, username.length() - 1);
+            } else if (!enteringUsername && password.length() > 0) {
+                password = password.substring(0, password.length() - 1);
+            }
+        } else if (key == TAB) {
+            enteringUsername = !enteringUsername;
+        } else if (key == ENTER || key == RETURN) {
+            attemptLogin();
+        } else if (key >= 32 && key <= 126) { // Printable characters
+            if (enteringUsername) {
+                username += key;
+            } else {
+                password += key;
+            }
+        }
+    }
+    
+    void handleCreateAccountKeyPress() {
+        if (key == BACKSPACE) {
+            if (creatingUsername && newUsername.length() > 0) {
+                newUsername = newUsername.substring(0, newUsername.length() - 1);
+            } else if (creatingPassword && newPassword.length() > 0) {
+                newPassword = newPassword.substring(0, newPassword.length() - 1);
+            } else if (creatingConfirm && confirmPassword.length() > 0) {
+                confirmPassword = confirmPassword.substring(0, confirmPassword.length() - 1);
+            }
+        } else if (key == TAB) {
+            if (creatingUsername) {
+                creatingUsername = false;
+                creatingPassword = true;
+                creatingConfirm = false;
+            } else if (creatingPassword) {
+                creatingUsername = false;
+                creatingPassword = false;
+                creatingConfirm = true;
+            } else {
+                creatingUsername = true;
+                creatingPassword = false;
+                creatingConfirm = false;
+            }
+        } else if (key == ENTER || key == RETURN) {
+            attemptCreateAccount();
+        } else if (key >= 32 && key <= 126) { // Printable characters
+            if (creatingUsername) {
+                newUsername += key;
+            } else if (creatingPassword) {
+                newPassword += key;
+            } else if (creatingConfirm) {
+                confirmPassword += key;
+            }
+        }
+    }
+    
+    class Button {
+        float x, y, w, h;
+        String text;
+        color bgColor;
+        color textColor;
+        
+        Button(float x, float y, float w, float h, String text, color bgColor, color textColor) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+            this.text = text;
+            this.bgColor = bgColor;
+            this.textColor = textColor;
+        }
+        
+        void display() {
+            fill(bgColor);
+            rect(x, y, w, h, 5);
+            fill(textColor);
+            textAlign(CENTER, CENTER);
+            textSize(18);
+            text(text, x + w/2, y + h/2);
+        }
+        
+        boolean isMouseOver() {
+            return mouseX > x && mouseX < x + w && mouseY > y && mouseY < y + h;
+        }
+    }
+    
+    public void stop() {
+        try {
+            if (socket != null) {
                 socket.close();
             }
-        }catch (IOException e){
+        } catch (IOException e) {
             e.printStackTrace();
         }
         super.stop();
@@ -445,5 +615,4 @@ public class DueloArena extends PApplet {
     public static void main(String[] args) {
         PApplet.main("DueloArena");
     }
-
 }
