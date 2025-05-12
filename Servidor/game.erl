@@ -127,17 +127,17 @@ queue_handler(Sock) ->
         {tcp, Sock, Data} ->
             case parse_queue_input(Data) of
                 {add_to_queue, Username} ->
-                    case server:get_player_level(Username) of  % Now using the 1-argument version
+                    case server:get_player_level(Username) of  
                         {ok, Level} ->
-                            case queuelist:add_to_queue(Username, Level) of
-                                {matched, U1, U2} ->
+                            % Armazena o socket junto com o usuário
+                            case queuelist:add_to_queue(Username, Level, Sock) of
+                                {matched, U1, Sock1, U2, Sock2} ->
                                     io:format("Matched players: ~s and ~s~n", [U1, U2]),
-                                    io:format("Current queue: ~p~n", [queuelist:get_queue()]),
-                                    gen_tcp:send(Sock, "MATCHED " ++ U1 ++ " " ++ U2 ++ "\n"),
-                                    worker(Sock, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0});
+                                    gen_tcp:send(Sock1, "MATCHED " ++ U2 ++ "\n"),
+                                    gen_tcp:send(Sock2, "MATCHED " ++ U1 ++ "\n"),
+                                    spawn(fun() -> worker(Sock1, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}) end),
+                                    spawn(fun() -> worker(Sock2, {3 * ?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}) end);
                                 queued ->
-                                    io:format("User ~s queued~n", [Username]),
-                                    io:format("Current queue: ~p~n", [queuelist:get_queue()]),
                                     gen_tcp:send(Sock, "QUEUED\n"),
                                     queue_handler(Sock);
                                 already_queued ->

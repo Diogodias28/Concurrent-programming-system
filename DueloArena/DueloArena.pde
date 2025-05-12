@@ -123,10 +123,9 @@ public class DueloArena extends PApplet {
     
     void handleServerMessage(String message) {
         if (message.startsWith("MATCHED")) {
-            // Message format: "MATCHED username1 username2"
             String[] parts = message.split(" ");
-            if (parts.length >= 3) {
-                opponentUsername = parts[1].equals(loggedInUsername) ? parts[2] : parts[1];
+            if (parts.length >= 2) {
+                opponentUsername = parts[1];
                 isPlayer1 = parts[1].equals(loggedInUsername);
                 
                 inQueue = false;
