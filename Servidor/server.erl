@@ -88,34 +88,6 @@ loop({Map, Queue}) ->
         {Pid, online} ->
             OnlineUsers = [{U, L} || {U, {_, true, L, _}} <- maps:to_list(Map)],
             Pid ! OnlineUsers,
-            loop({Map, Queue});
-
-        {Pid, {queue, User}} ->
-            case maps:find(User, Map) of
-                {ok, {_, true, Level, _}} ->
-                    case user_already_queued(User, Queue) of
-                        true ->
-                            Pid ! already_queued,
-                            loop({Map, Queue});
-                        false ->
-                            NewQueue = queue:in({User, Level}, Queue),
-                            case try_match(NewQueue) of
-                                {matched, Q2} ->
-                                    Pid ! matched,
-                                    loop({Map, Q2});
-                                {no_match, Q2} ->
-                                    Pid ! queued,
-                                    loop({Map, Q2})
-                            end
-                    end;
-                _ ->
-                    Pid ! invalid,
-                    loop({Map, Queue})
-            end;
-
-        {Pid, get_queue} ->
-            QueueList = queue:to_list(Queue),
-            Pid ! QueueList,
             loop({Map, Queue})
     end.
 

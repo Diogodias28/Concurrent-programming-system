@@ -1,6 +1,7 @@
 -module(game).
 -import(gen_tcp, [listen/2]).
--import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0, queue/1, get_queue/0]).
+-import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0]).
+-import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0]).
 -export([start/1, authenticator/1, parse_auth_input/1]).
 
 -define(FRICTION, 0.98).
