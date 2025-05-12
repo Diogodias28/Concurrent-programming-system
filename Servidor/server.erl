@@ -63,7 +63,6 @@ loop({Map, Queue}) ->
             case maps:find(U, Map) of
                 {ok, {P, false, L, V}} ->
                     NewMap = maps:put(U, {P, true, L, V}, Map),
-                    save_logged_account(U),
                     Pid ! ok,
                     loop({NewMap, Queue});
                 _ ->
@@ -107,9 +106,6 @@ save_accounts(Map) ->
     Accounts = maps:to_list(Map),
     LoggedOutAccounts = logout_all_list(Accounts),
     file:write_file("Accounts.txt", io_lib:format("~p.", [LoggedOutAccounts])).
-
-save_logged_account(User) ->
-    file:write_file("../DueloArena/Login.txt", io_lib:format("~p", [User])).
 
 logout_account() ->
     file:write_file("../DueloArena/Login.txt", "").

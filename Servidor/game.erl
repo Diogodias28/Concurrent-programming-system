@@ -2,7 +2,10 @@
 -import(gen_tcp, [listen/2]).
 -import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0]).
 -import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0, remove_from_queue/1]).
+-import(partidas, [add_partida/1, get_partidas/0, update_partida/2, remove_partida/1, get_partida_by_player/1]).
+-include("partida.hrl").
 -export([start/1, authenticator/1, parse_auth_input/1]).
+
 
 -define(FRICTION, 0.98).
 -define(INITIAL_ACCELERATION, 0.01).
@@ -16,6 +19,7 @@
 start(Port) ->
     io:format("Starting game server on port ~p~n", [Port]),
     queuelist:start(),
+    partidas:start(),
     case server:start() of
         {ok, _Pid} ->
             io:format("Account server started successfully~n"),
@@ -132,15 +136,7 @@ queue_handler(Sock) ->
                             case queuelist:add_to_queue(Username, Level, Sock) of
                                 {matched, U1, Sock1, U2, Sock2} ->
                                     io:format("Matched players: ~s and ~s~n", [U1, U2]),
-                                    gen_tcp:send(Sock1, "MATCHED " ++ U2 ++ "\n"),
-                                    gen_tcp:send(Sock2, "MATCHED " ++ U1 ++ "\n"),
-                                    Pid1 = spawn(fun() -> 
-                                        worker(Sock1, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}, none) 
-                                    end),
-                                    Pid2 = spawn(fun() -> 
-                                        worker(Sock2, {3 * ?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}, Pid1) 
-                                    end),
-                                    Pid1 ! {opponent_pid, Pid2};
+                                    comecarjogo(Sock1, U1, Sock2, U2);
                                 queued ->
                                     gen_tcp:send(Sock, "QUEUED\n"),
                                     queue_handler(Sock);
@@ -157,6 +153,8 @@ queue_handler(Sock) ->
                     queuelist:remove_from_queue(Username),
                     gen_tcp:send(Sock, "UNQUEUED\n"),
                     queue_handler(Sock);
+                {close_function} ->
+                    io:format("Closing function for user~n");
                 {error, _} ->
                     gen_tcp:send(Sock, "INVALID_QUEUE_COMMAND\n"),
                     queue_handler(Sock)
@@ -176,122 +174,120 @@ parse_queue_input(Data) ->
             {add_to_queue, string:trim(Username)};
         ["UNQUEUE", Username] ->
             {remove_from_queue, string:trim(Username)};
+        ["MATCH_FOUND"] ->
+            {close_function};
         _ ->
             {error, "Invalid queue command"}
     end.
 
-worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid) ->
-    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, sets:new()).
 
-worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, ActiveKeys) ->
-    inet:setopts(Sock, [{active, once}]),
+
+comecarjogo(Sock1, Username1, Sock2, Username2) ->
+    io:format("Starting game between ~s and ~s~n", [Username1, Username2]),
+    gen_tcp:send(Sock1, "MATCHED " ++ Username2 ++ "\n"),
+    gen_tcp:send(Sock2, "MATCHED " ++ Username1 ++ "\n"),
+    % Initialize game state
+    NewPartida = #partida{
+        player1 = Username1,
+        player2 = Username2,
+        sock1 = Sock1,
+        sock2 = Sock2,
+        player1Position = {100, 300},
+        player2Position = {700, 300},
+        player1Score = 0,
+        player2Score = 0,
+        projectiles = [],
+        time = 120
+    },
+    add_partida(NewPartida),
+    io:format("Partida added: ~p~n", [NewPartida]),
+    % Spawn gestorPartidas in a separate process
+    spawn(fun() -> gestorPartidas(Username1) end),
+    % Start the game loop
+    ciclojogo(Username1, Sock1, Sock2).
+    
+
+ciclojogo(Player1, Sock1, Sock2) ->
+    io:format("Entering game loop for ~s~n", [Player1]),
+    inet:setopts(Sock1, [{active, once}]),
+    inet:setopts(Sock2, [{active, once}]),
+    
     receive
-        {tcp, Sock, Data} ->
-            case parse_input(Data) of
-                {key_press, Direction} ->
-                    NewActiveKeys = sets:add_element(Direction, ActiveKeys),
-                    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, NewActiveKeys);
-                {key_release, Direction} ->
-                    NewActiveKeys = sets:del_element(Direction, ActiveKeys),
-                    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, NewActiveKeys);
-                {error, Reason} ->
-                    io:format("Invalid input: ~s~n", [Reason]),
-                    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, ActiveKeys)
-            end;
-        {position_update, OppX, OppY} ->
-            % Send full game state to client
-            GameState = io_lib:format("GAME_STATE ~f ~f ~f ~f\n", 
-                                    [PlayerX, PlayerY, OppX, OppY]),
-            gen_tcp:send(Sock, GameState),
-            worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, ActiveKeys);
-        {opponent_pid, NewOpponentPid} ->
-            worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, NewOpponentPid, ActiveKeys);
-        update ->
-            % Calculate acceleration based on active keys
-            {AccX, AccY} = calculate_acceleration(ActiveKeys),
-            
-            % Calculate new velocity and position
-            {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, AccX, AccY),
-            {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
-            
-            % Check boundaries
-            {FinalX, FinalY} = check_boundaries(NewPlayerX, NewPlayerY),
-            
-            % Notify opponent
-            case OpponentPid of
-                none -> ok;
-                _ -> OpponentPid ! {position_update, FinalX, FinalY}
-            end,
-            
-            % Schedule next update
-            erlang:send_after(16, self(), update), % ~60fps
-            
-            worker(Sock, {FinalX, FinalY}, {NewPlayerSpeedX, NewPlayerSpeedY}, OpponentPid, ActiveKeys);
-        {tcp_closed, Sock} ->
-            io:format("Socket closed.~n"),
-            ok;
-        {tcp_error, Sock, Reason} ->
-            io:format("Socket error: ~p~n", [Reason]),
+        {tcp, Sock1, Data} ->
+            io:format("Received input from Player 1: ~s~n", [Data]),
+            GameState = get_partida_by_player(Player1),
+            io:format("GameState for Player 1: ~p~n", [GameState]),
+            UpdatedGameState = handle_player_input(GameState, 1, Data),
+            update_partida(GameState#partida.player1, UpdatedGameState),
+            ciclojogo(Player1, Sock1, Sock2);
+        {tcp, Sock2, Data} ->
+            io:format("Received input from Player 2: ~s~n", [Data]),
+            GameState = get_partida_by_player(Player1),
+            io:format("GameState for Player 2: ~p~n", [GameState]),
+            UpdatedGameState = handle_player_input(GameState, 2, Data),
+            update_partida(GameState#partida.player1, UpdatedGameState),
+            ciclojogo(Player1, Sock1, Sock2);
+        {tcp_closed, Sock1} ->
+            GameState = get_partida_by_player(Player1),
+            io:format("Player 1 (~s) disconnected~n", [GameState#partida.player1]);
+            %end_game(GameState, 2); % Player 2 wins
+        {tcp_closed, Sock2} ->
+            GameState = get_partida_by_player(Player1),
+            io:format("Player 2 (~s) disconnected~n", [GameState#partida.player2]),
             ok
-    after 0 ->
-        % Initial update message
-        self() ! update,
-        worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, ActiveKeys)
+            %end_game(GameState, 1); % Player 1 wins
     end.
 
-parse_input(Data) ->
-    case string:split(string:trim(Data), ":", all) of
-        ["KEY_PRESS", Direction] -> {key_press, list_to_atom(string:to_lower(Direction))};
-        ["KEY_RELEASE", Direction] -> {key_release, list_to_atom(string:to_lower(Direction))};
-        _ -> {error, "Invalid input"}
+handle_player_input(GameState, PlayerNum, Data) ->
+    io:format("Handling input for Player ~p: ~s~n", [PlayerNum, Data]),
+    Trimmed = string:trim(Data),
+    case string:split(Trimmed, ":", all) of
+        ["PLAYER1SCORE", Score] ->
+            NewScore = string:to_integer(Score),
+            io:format("Updating Player 1 score to ~p~n", [NewScore]),
+            UpdatedGameState = GameState#partida{player1Score = NewScore},
+            update_partida(GameState#partida.player1, UpdatedGameState),
+            UpdatedGameState;
+        ["PLAYER2SCORE", Score] ->
+            NewScore = string:to_integer(Score),
+            io:format("Updating Player 2 score to ~p~n", [NewScore]),
+            UpdatedGameState = GameState#partida{player2Score = NewScore},
+            update_partida(GameState#partida.player1, UpdatedGameState),
+            UpdatedGameState;
+        _ ->
+            io:format("Unknown input: ~s~n", [Data]),
+            GameState
     end.
 
-calculate_velocity(SpeedX, SpeedY, AccX, AccY) ->
-    NewSpeedX = speed_limit(SpeedX + AccX, ?MAX_SPEED, -?MAX_SPEED) * ?FRICTION,
-    NewSpeedY = speed_limit(SpeedY + AccY, ?MAX_SPEED, -?MAX_SPEED) * ?FRICTION,
-    {NewSpeedX, NewSpeedY}.
-
-calculate_position(X, Y, SpeedX, SpeedY) ->
-    {X + SpeedX, Y + SpeedY}.
-
-speed_limit(Vel, Max, Min) ->
-    if 
-        Vel > Max ->
-            Max;
-        Vel < Min ->
-            Min;
-        true ->
-            Vel
+gestorPartidas(Username1) ->
+    %io:format("GestorPartidas called for ~s~n", [Username1]),
+    Partida = get_partida_by_player(Username1),
+    case Partida of
+        {ok, P} ->
+            %io:format("Partida found for ~s: ~p~n", [Username1, P]),
+            % Debug print before sending partida
+            %io:format("Sending partida to client: ~p~n", [P]),
+            send_partida(P),
+            erlang:send_after(16, self(), {continue, Username1}),
+            wait_for_continue();
+        {error, not_found} ->
+            io:format("No partida found for ~s~n", [Username1])
     end.
 
-calculate_acceleration(ActiveKeys) ->
-    lists:foldl(
-        fun(Direction, {AccX, AccY}) ->
-            {DirX, DirY} = get_acceleration(Direction),
-            {AccX + DirX, AccY + DirY}
-        end,
-        {0, 0},
-        sets:to_list(ActiveKeys)
-    ).
+wait_for_continue() ->
+    receive
+        {continue, Username1} ->
+            gestorPartidas(Username1)
+    end.
 
-check_boundaries(X, Y) ->
-    NewX = if
-        X < ?WALL_THICKNESS -> ?WALL_THICKNESS;
-        X > ?ARENA_WIDTH - ?WALL_THICKNESS -> ?ARENA_WIDTH - ?WALL_THICKNESS;
-        true -> X
-    end,
-    NewY = if
-        Y < ?GUI_HEIGHT + ?WALL_THICKNESS -> ?GUI_HEIGHT + ?WALL_THICKNESS;
-        Y > ?ARENA_HEIGHT + ?GUI_HEIGHT - ?WALL_THICKNESS -> ?ARENA_HEIGHT + ?GUI_HEIGHT - ?WALL_THICKNESS;
-        true -> Y
-    end,
-    {NewX, NewY}.
-
-get_acceleration(left) ->
-    {-(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT), 0};
-get_acceleration(right) ->
-    {?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT, 0};
-get_acceleration(up) ->
-    {0, -(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT)};
-get_acceleration(down) ->
-    {0, ?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT}.
+send_partida(Partida) ->
+    % Convert the partida record to a custom delimited string
+    CustomData = io_lib:format("P1:~s|P2:~s|S1:~p|S2:~p|T:~p",
+                               [Partida#partida.player1,
+                                Partida#partida.player2,
+                                Partida#partida.player1Score,
+                                Partida#partida.player2Score,
+                                Partida#partida.time]),
+    % Send the custom delimited data to both players
+    gen_tcp:send(Partida#partida.sock1, CustomData ++ "\n"),
+    gen_tcp:send(Partida#partida.sock2, CustomData ++ "\n").
