@@ -10,11 +10,11 @@
 -define(MAX_SPEED, 6).
 -define(GUI_HEIGHT, 70).
 -define(ARENA_HEIGHT, 600).
+-define(WALL_THICKNESS, 10).
 -define(ARENA_WIDTH, 800).
 
 start(Port) ->
     io:format("Starting game server on port ~p~n", [Port]),
-    % Start the account server first
     queuelist:start(),
     case server:start() of
         {ok, _Pid} ->
@@ -129,14 +129,18 @@ queue_handler(Sock) ->
                 {add_to_queue, Username} ->
                     case server:get_player_level(Username) of  
                         {ok, Level} ->
-                            % Armazena o socket junto com o usuário
                             case queuelist:add_to_queue(Username, Level, Sock) of
                                 {matched, U1, Sock1, U2, Sock2} ->
                                     io:format("Matched players: ~s and ~s~n", [U1, U2]),
                                     gen_tcp:send(Sock1, "MATCHED " ++ U2 ++ "\n"),
                                     gen_tcp:send(Sock2, "MATCHED " ++ U1 ++ "\n"),
-                                    spawn(fun() -> worker(Sock1, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}) end),
-                                    spawn(fun() -> worker(Sock2, {3 * ?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}) end);
+                                    Pid1 = spawn(fun() -> 
+                                        worker(Sock1, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}, none) 
+                                    end),
+                                    Pid2 = spawn(fun() -> 
+                                        worker(Sock2, {3 * ?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0}, Pid1) 
+                                    end),
+                                    Pid1 ! {opponent_pid, Pid2};
                                 queued ->
                                     gen_tcp:send(Sock, "QUEUED\n"),
                                     queue_handler(Sock);
@@ -150,7 +154,6 @@ queue_handler(Sock) ->
                     end;
                 {remove_from_queue, Username} ->
                     io:format("Removing user ~s from queue~n", [Username]),
-                    io:format("Current queue: ~p~n", [queuelist:get_queue()]),
                     queuelist:remove_from_queue(Username),
                     gen_tcp:send(Sock, "UNQUEUED\n"),
                     queue_handler(Sock);
@@ -177,59 +180,69 @@ parse_queue_input(Data) ->
             {error, "Invalid queue command"}
     end.
 
-worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
+worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid) ->
+    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, sets:new()).
+
+worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, ActiveKeys) ->
     inet:setopts(Sock, [{active, once}]),
     receive
         {tcp, Sock, Data} ->
-            io:format("Received data: ~s~n", [Data]),
             case parse_input(Data) of
-                {move, Direction} ->  
-                    Confirmation = io_lib:format("comando recebido move,~s\n", [string:to_upper(atom_to_list(Direction))]),
-                    gen_tcp:send(Sock, Confirmation),
-                    {AccX, AccY} = get_acceleration(Direction),
-                    {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, AccX, AccY),
-                    {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
-                    Response = io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY]),
-                    case gen_tcp:send(Sock, Response) of
-                        ok -> ok;
-                        {error, Reason} ->
-                            io:format("Failed to send data: ~p~n", [Reason])
-                    end,
-                    worker(Sock, {NewPlayerX, NewPlayerY}, {NewPlayerSpeedX, NewPlayerSpeedY});
-                {stop, Direction} ->
-                    Confirmation = io_lib:format("Comando recebido, stop,~s\n", [string:to_upper(atom_to_list(Direction))]),
-                    gen_tcp:send(Sock, Confirmation),
-                    {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, 0, 0),
-                    {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
-                    Response = io_lib:format("PLAYER_POS ~f ~f\n", [NewPlayerX, NewPlayerY]),
-                    case gen_tcp:send(Sock, Response) of
-                        ok -> ok;
-                        {error, Reason} ->
-                            io:format("Failed to send data: ~p~n", [Reason])
-                    end,
-                    worker(Sock, {NewPlayerX, NewPlayerY}, {NewPlayerSpeedX, NewPlayerSpeedY});
+                {key_press, Direction} ->
+                    NewActiveKeys = sets:add_element(Direction, ActiveKeys),
+                    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, NewActiveKeys);
+                {key_release, Direction} ->
+                    NewActiveKeys = sets:del_element(Direction, ActiveKeys),
+                    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, NewActiveKeys);
                 {error, Reason} ->
                     io:format("Invalid input: ~s~n", [Reason]),
-                    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY})
+                    worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, ActiveKeys)
             end;
+        {position_update, OppX, OppY} ->
+            % Send full game state to client
+            GameState = io_lib:format("GAME_STATE ~f ~f ~f ~f\n", 
+                                    [PlayerX, PlayerY, OppX, OppY]),
+            gen_tcp:send(Sock, GameState),
+            worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, ActiveKeys);
+        {opponent_pid, NewOpponentPid} ->
+            worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, NewOpponentPid, ActiveKeys);
+        update ->
+            % Calculate acceleration based on active keys
+            {AccX, AccY} = calculate_acceleration(ActiveKeys),
+            
+            % Calculate new velocity and position
+            {NewPlayerSpeedX, NewPlayerSpeedY} = calculate_velocity(PlayerSpeedX, PlayerSpeedY, AccX, AccY),
+            {NewPlayerX, NewPlayerY} = calculate_position(PlayerX, PlayerY, NewPlayerSpeedX, NewPlayerSpeedY),
+            
+            % Check boundaries
+            {FinalX, FinalY} = check_boundaries(NewPlayerX, NewPlayerY),
+            
+            % Notify opponent
+            case OpponentPid of
+                none -> ok;
+                _ -> OpponentPid ! {position_update, FinalX, FinalY}
+            end,
+            
+            % Schedule next update
+            erlang:send_after(16, self(), update), % ~60fps
+            
+            worker(Sock, {FinalX, FinalY}, {NewPlayerSpeedX, NewPlayerSpeedY}, OpponentPid, ActiveKeys);
         {tcp_closed, Sock} ->
-            io:format("Socket closed. ~n"),
+            io:format("Socket closed.~n"),
             ok;
         {tcp_error, Sock, Reason} ->
             io:format("Socket error: ~p~n", [Reason]),
             ok
+    after 0 ->
+        % Initial update message
+        self() ! update,
+        worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}, OpponentPid, ActiveKeys)
     end.
 
 parse_input(Data) ->
-    case [string:trim(Part) || Part <- string:split(string:trim(Data), ",", all)] of
-        ["MOVE", "UP"] -> {move, up};
-        ["MOVE", "DOWN"] -> {move, down};
-        ["MOVE", "LEFT"] -> {move, left};
-        ["MOVE", "RIGHT"] -> {move, right};
-        ["STOP", "UP"] -> {stop, up};
-        ["STOP", "DOWN"] -> {stop, down};
-        ["STOP", "LEFT"] -> {stop, left};
-        ["STOP", "RIGHT"] -> {stop, right};
+    case string:split(string:trim(Data), ":", all) of
+        ["KEY_PRESS", Direction] -> {key_press, list_to_atom(string:to_lower(Direction))};
+        ["KEY_RELEASE", Direction] -> {key_release, list_to_atom(string:to_lower(Direction))};
         _ -> {error, "Invalid input"}
     end.
 
@@ -250,6 +263,29 @@ speed_limit(Vel, Max, Min) ->
         true ->
             Vel
     end.
+
+calculate_acceleration(ActiveKeys) ->
+    lists:foldl(
+        fun(Direction, {AccX, AccY}) ->
+            {DirX, DirY} = get_acceleration(Direction),
+            {AccX + DirX, AccY + DirY}
+        end,
+        {0, 0},
+        sets:to_list(ActiveKeys)
+    ).
+
+check_boundaries(X, Y) ->
+    NewX = if
+        X < ?WALL_THICKNESS -> ?WALL_THICKNESS;
+        X > ?ARENA_WIDTH - ?WALL_THICKNESS -> ?ARENA_WIDTH - ?WALL_THICKNESS;
+        true -> X
+    end,
+    NewY = if
+        Y < ?GUI_HEIGHT + ?WALL_THICKNESS -> ?GUI_HEIGHT + ?WALL_THICKNESS;
+        Y > ?ARENA_HEIGHT + ?GUI_HEIGHT - ?WALL_THICKNESS -> ?ARENA_HEIGHT + ?GUI_HEIGHT - ?WALL_THICKNESS;
+        true -> Y
+    end,
+    {NewX, NewY}.
 
 get_acceleration(left) ->
     {-(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT), 0};

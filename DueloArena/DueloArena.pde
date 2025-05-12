@@ -7,6 +7,17 @@ import java.net.Socket;
 import javax.swing.JOptionPane;
 
 public class DueloArena extends PApplet {
+    // Configurações da arena
+    final int ARENA_WIDTH = 800;
+    final int ARENA_HEIGHT = 600;
+    final int WALL_THICKNESS = 10;
+    final int GUI_HEIGHT = 70;
+    
+    // Configurações do jogador
+    final int PLAYER_SIZE = 30;
+    final float MAX_SPEED = 6;
+    final float FRICTION = 0.98f;
+    
     // Game states
     final int STATE_IP_INPUT = 0;
     final int STATE_CONNECTING = 1;
@@ -18,7 +29,7 @@ public class DueloArena extends PApplet {
     
     // Connection variables
     String serverIP = "";
-    String inputIP = "";
+    String inputIP = "192.168.1.112";
     int serverPort = 1234;
     String inputPort = "1234";
     Socket socket;
@@ -26,6 +37,20 @@ public class DueloArena extends PApplet {
     PrintWriter out;
     boolean connected = false;
     boolean enteringIP = true;
+    
+    // Player variables
+    float playerX, playerY;
+    float playerSpeedX, playerSpeedY;
+    float opponentX, opponentY;
+    boolean upPressed, downPressed, leftPressed, rightPressed;
+    String loggedInUsername = "";
+    String opponentUsername = "";
+    boolean isPlayer1 = false;
+    boolean inQueue = false;
+    boolean moveUp = false;
+    boolean moveDown = false;
+    boolean moveLeft = false;
+    boolean moveRight = false;
     
     // Login screen variables
     String username = "";
@@ -43,68 +68,65 @@ public class DueloArena extends PApplet {
     boolean creatingConfirm = false;
     boolean createAccountError = false;
     String createAccountErrorMessage = "";
-    String loggedInUsername = "";
-    
-    // Queue screen variables
-    boolean inQueue = false;
-    Button queueButton;
     
     // UI elements
+    Button queueButton;
     Button loginButton;
     Button createAccountButton;
     Button backToLoginButton;
     Button submitCreateButton;
-
-
-    boolean upPressed = false;
-    boolean downPressed = false;
-    boolean leftPressed = false;
-    boolean rightPressed = false;
-    String opponentUsername = "";
-    boolean isPlayer1 = false;
     
     public void settings() {
-        size(800, 600);
+        size(ARENA_WIDTH, ARENA_HEIGHT + GUI_HEIGHT);
     }
 
     public void setup() {
-      // Default values for testing
-      inputIP = "192.168.1.112";  // Default IP
-      inputPort = "1234";     // Default port
-      
-      // Initialize buttons
-      queueButton = new Button(width/2 - 100, height/2 - 25, 200, 50, "Enter Queue", color(200), color(0));
-      loginButton = new Button(width/2 - 75, 320, 150, 40, "Login", color(0, 150, 0), color(255));
-      createAccountButton = new Button(width/2 - 75, 380, 150, 40, "Create Account", color(50, 50, 200), color(255));
-      backToLoginButton = new Button(width/2 - 75, 400, 150, 40, "Back to Login", color(150, 150, 150), color(255));
-      submitCreateButton = new Button(width/2 - 75, 360, 150, 40, "Create Account", color(0, 150, 0), color(255));
+        // Initialize buttons
+        queueButton = new Button(width/2 - 100, height/2 - 25, 200, 50, "Enter Queue", color(200), color(0));
+        loginButton = new Button(width/2 - 75, 320, 150, 40, "Login", color(0, 150, 0), color(255));
+        createAccountButton = new Button(width/2 - 75, 380, 150, 40, "Create Account", color(50, 50, 200), color(255));
+        backToLoginButton = new Button(width/2 - 75, 400, 150, 40, "Back to Login", color(150, 150, 150), color(255));
+        submitCreateButton = new Button(width/2 - 75, 360, 150, 40, "Create Account", color(0, 150, 0), color(255));
+        
+        // Initialize player positions
+        resetGamePositions();
+    }
+
+    void resetGamePositions() {
+        playerX = width/4;
+        playerY = (ARENA_HEIGHT)/2 + GUI_HEIGHT;
+        playerSpeedX = 0;
+        playerSpeedY = 0;
+        
+        opponentX = 3*width/4;
+        opponentY = (ARENA_HEIGHT)/2 + GUI_HEIGHT;
     }
     
-      public void draw() {
-          background(240);
-          checkServerMessages();
-          
-          switch(currentState) {
-              case STATE_IP_INPUT:
-                  drawIPInputScreen();
-                  break;
-              case STATE_CONNECTING:
-                  drawConnectingScreen();
-                  break;
-              case STATE_LOGIN:
-                  drawLoginScreen();
-                  break;
-              case STATE_CREATE_ACCOUNT:
-                  drawCreateAccountScreen();
-                  break;
-              case STATE_QUEUE:
-                  drawQueueScreen();
-                  break;
-              case STATE_GAME:
-                  drawGameScreen();
-                  break;
-          }
-      }
+    public void draw() {
+        background(240);
+        checkServerMessages();
+        
+        switch(currentState) {
+            case STATE_IP_INPUT:
+                drawIPInputScreen();
+                break;
+            case STATE_CONNECTING:
+                drawConnectingScreen();
+                break;
+            case STATE_LOGIN:
+                drawLoginScreen();
+                break;
+            case STATE_CREATE_ACCOUNT:
+                drawCreateAccountScreen();
+                break;
+            case STATE_QUEUE:
+                drawQueueScreen();
+                break;
+            case STATE_GAME:
+                drawGameScreen();
+                break;
+        }
+    }
       
     void checkServerMessages() {
         if (connected && in != null) {
@@ -122,65 +144,154 @@ public class DueloArena extends PApplet {
     }
     
     void handleServerMessage(String message) {
+        println("Server message: " + message);
+        
         if (message.startsWith("MATCHED")) {
             String[] parts = message.split(" ");
             if (parts.length >= 2) {
                 opponentUsername = parts[1];
-                isPlayer1 = parts[1].equals(loggedInUsername);
-                
-                inQueue = false;
+                isPlayer1 = !opponentUsername.equals(loggedInUsername);
                 currentState = STATE_GAME;
-                queueButton.text = "Enter Queue";
+                resetGamePositions();
+            }
+        } 
+        else if (message.startsWith("GAME_STATE")) {
+            String[] parts = message.split(" ");
+            if (parts.length >= 5) {
+                playerX = Float.parseFloat(parts[1]);
+                playerY = Float.parseFloat(parts[2]);
+                opponentX = Float.parseFloat(parts[3]);
+                opponentY = Float.parseFloat(parts[4]);
             }
         }
     }
     
     void drawGameScreen() {
-        // Draw arena background
-        background(0, 50, 100);
+        // Draw GUI
+        drawGameGUI();
         
-        // Draw GUI area at the top
-        fill(50);
-        rect(0, 0, width, 70);
+        // Draw arena walls
+        drawArena();
         
-        // Draw player info
-        fill(255);
-        textAlign(LEFT, CENTER);
-        textSize(16);
-        text("Player: " + loggedInUsername, 20, 35);
-        text("Opponent: " + opponentUsername, width/2 - 100, 35);
+        // Draw players
+        fill(0, 0, 255); // Blue player
+        ellipse(playerX, playerY, PLAYER_SIZE, PLAYER_SIZE);
         
-        // Draw arena boundaries
-        fill(0);
-        rect(0, 70, width, height - 70);
+        fill(255, 0, 0); // Red opponent
+        ellipse(opponentX, opponentY, PLAYER_SIZE, PLAYER_SIZE);
         
-        // Draw player paddles (simple rectangles for now)
-        fill(255);
-        float paddleWidth = 20;
-        float paddleHeight = 100;
-        
-        // Player 1 paddle (left side)
-        float player1X = 50;
-        float player1Y = height/2 - paddleHeight/2;
-        rect(player1X, player1Y, paddleWidth, paddleHeight);
-        
-        // Player 2 paddle (right side)
-        float player2X = width - 50 - paddleWidth;
-        float player2Y = height/2 - paddleHeight/2;
-        rect(player2X, player2Y, paddleWidth, paddleHeight);
-        
-        // Draw center line
-        stroke(255);
-        strokeWeight(2);
-        line(width/2, 70, width/2, height);
-        noStroke();
-        
-        // Draw controls instructions
-        textAlign(CENTER, CENTER);
-        textSize(14);
-        text("Use arrow keys to move", width/2, height - 30);
     }
     
+    void drawGameGUI() {
+        fill(220);
+        rect(0, 0, width, GUI_HEIGHT);
+        
+        // Player info
+        fill(0);
+        textAlign(LEFT, CENTER);
+        textSize(16);
+        text("You: " + loggedInUsername, 20, GUI_HEIGHT/2);
+        text("Opponent: " + opponentUsername, width - 200, GUI_HEIGHT/2);
+        
+        // Score and timer
+        textAlign(CENTER, CENTER);
+        textSize(24);
+        text("0 - 0", width/2, GUI_HEIGHT/2);
+        
+        // Separator line
+        stroke(150);
+        line(0, GUI_HEIGHT, width, GUI_HEIGHT);
+        noStroke();
+    }
+    
+    void drawArena() {
+        fill(150);
+        // Top wall
+        rect(0, GUI_HEIGHT, width, WALL_THICKNESS);
+        // Bottom wall
+        rect(0, height - WALL_THICKNESS, width, WALL_THICKNESS);
+        // Left wall
+        rect(0, GUI_HEIGHT, WALL_THICKNESS, ARENA_HEIGHT);
+        // Right wall
+        rect(width - WALL_THICKNESS, GUI_HEIGHT, WALL_THICKNESS, ARENA_HEIGHT);
+    }
+
+    public void keyPressed() {
+        switch(currentState) {
+            case STATE_IP_INPUT:
+                handleIPInputKeyPress();
+                break;
+            case STATE_LOGIN:
+                handleLoginScreenKeyPress();
+                break;
+            case STATE_CREATE_ACCOUNT:
+                handleCreateAccountKeyPress();
+                break;
+            case STATE_GAME:
+                handleMovementKeyPress(true);
+                break;
+        }
+    }
+
+    public void keyReleased() {
+        if (currentState == STATE_GAME) {
+            handleMovementKeyPress(false);
+        }
+    }
+    
+    void handleMovementKeyPress(boolean pressed) {
+        if (connected && out != null) {
+            switch(key) {
+                case 'w':
+                case 'W':
+                    moveUp = pressed;
+                    out.println(pressed ? "KEY_PRESS:UP" : "KEY_RELEASE:UP");
+                    break;
+                case 's':
+                case 'S':
+                    moveDown = pressed;
+                    out.println(pressed ? "KEY_PRESS:DOWN" : "KEY_RELEASE:DOWN");
+                    break;
+                case 'a':
+                case 'A':
+                    moveLeft = pressed;
+                    out.println(pressed ? "KEY_PRESS:LEFT" : "KEY_RELEASE:LEFT");
+                    break;
+                case 'd':
+                case 'D':
+                    moveRight = pressed;
+                    out.println(pressed ? "KEY_PRESS:RIGHT" : "KEY_RELEASE:RIGHT");
+                    break;
+            }
+        }
+    }
+    
+    void sendMovementCommand(String key, boolean pressed) {
+        if (connected && out != null) {
+            String command = pressed ? "KEY_PRESS:" : "KEY_RELEASE:";
+            out.println(command + key);
+        }
+    }
+    
+    void updatePositionsFromServer() {
+        if (connected && in != null) {
+            try {
+                while (in.ready()) {
+                    String message = in.readLine();
+                    if (message.startsWith("POS:")) {
+                        String[] parts = message.split(":");
+                        playerX = Float.parseFloat(parts[1]);
+                        playerY = Float.parseFloat(parts[2]);
+                        opponentX = Float.parseFloat(parts[3]);
+                        opponentY = Float.parseFloat(parts[4]);
+                    }
+                }
+            } catch (IOException e) {
+                println("Erro ao ler do servidor: " + e.getMessage());
+            }
+        }
+    }
+
     void drawIPInputScreen() {
         // Title
         fill(0);
@@ -500,17 +611,17 @@ public class DueloArena extends PApplet {
     }
     
     void switchToCreateAccount() {
-            currentState = STATE_CREATE_ACCOUNT;
-            newUsername = "";
-            newPassword = "";
-            confirmPassword = "";
-            creatingUsername = true;
-            creatingPassword = false;
-            creatingConfirm = false;
-            createAccountError = false;
-        }
+        currentState = STATE_CREATE_ACCOUNT;
+        newUsername = "";
+        newPassword = "";
+        confirmPassword = "";
+        creatingUsername = true;
+        creatingPassword = false;
+        creatingConfirm = false;
+        createAccountError = false;
+    }
         
-      void attemptCreateAccount() {
+    void attemptCreateAccount() {
         if (newUsername.isEmpty() || newPassword.isEmpty() || confirmPassword.isEmpty()) {
             createAccountError = true;
             createAccountErrorMessage = "Please fill all fields";
@@ -530,51 +641,33 @@ public class DueloArena extends PApplet {
         }
         
         if (connected) {
-          out.println("CREATE_ACCOUNT:" + newUsername + ":" + newPassword);
-          
-          try {
-              String response = in.readLine();
-              if ("ACCOUNT_CREATED".equals(response)) {
-                  // Server will automatically attempt login
-                  String loginResponse = in.readLine();
-                  if ("LOGIN_SUCCESS".equals(loginResponse)) {
-                      currentState = STATE_QUEUE;
-                      createAccountError = false;
-                      loginError = false;
-                  } else {
-                      createAccountError = false;
-                      loginError = true;
-                      loginErrorMessage = "Account created but login failed";
-                  }
-              } else if ("USERNAME_TAKEN".equals(response)) {
-                  createAccountError = true;
-                  createAccountErrorMessage = "Username already taken";
-              } else {
-                  createAccountError = true;
-                  createAccountErrorMessage = "Account creation failed";
-              }
-          } catch (IOException e) {
-              createAccountError = true;
-              createAccountErrorMessage = "Connection error during account creation";
-          }
-      }
-    }
-    
-    public void keyPressed() {
-        switch(currentState) {
-            case STATE_IP_INPUT:
-                handleIPInputKeyPress();
-                break;
-            case STATE_LOGIN:
-                handleLoginScreenKeyPress();
-                break;
-            case STATE_CREATE_ACCOUNT:
-                handleCreateAccountKeyPress();
-                break;
-            case STATE_QUEUE:
-            case STATE_GAME:
-                // Your existing key handling
-                break;
+            out.println("CREATE_ACCOUNT:" + newUsername + ":" + newPassword);
+            
+            try {
+                String response = in.readLine();
+                if ("ACCOUNT_CREATED".equals(response)) {
+                    // Server will automatically attempt login
+                    String loginResponse = in.readLine();
+                    if ("LOGIN_SUCCESS".equals(loginResponse)) {
+                        currentState = STATE_QUEUE;
+                        createAccountError = false;
+                        loginError = false;
+                    } else {
+                        createAccountError = false;
+                        loginError = true;
+                        loginErrorMessage = "Account created but login failed";
+                    }
+                } else if ("USERNAME_TAKEN".equals(response)) {
+                    createAccountError = true;
+                    createAccountErrorMessage = "Username already taken";
+                } else {
+                    createAccountError = true;
+                    createAccountErrorMessage = "Account creation failed";
+                }
+            } catch (IOException e) {
+                createAccountError = true;
+                createAccountErrorMessage = "Connection error during account creation";
+            }
         }
     }
     
@@ -697,7 +790,7 @@ public class DueloArena extends PApplet {
         }
         super.stop();
     }
-
+    
     public static void main(String[] args) {
         PApplet.main("DueloArena");
     }
