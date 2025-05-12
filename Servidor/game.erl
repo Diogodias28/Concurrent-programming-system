@@ -1,7 +1,7 @@
 -module(game).
 -import(gen_tcp, [listen/2]).
 -import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0]).
--import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0]).
+-import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0, remove_from_queue/1]).
 -export([start/1, authenticator/1, parse_auth_input/1]).
 
 -define(FRICTION, 0.98).
@@ -15,6 +15,7 @@
 start(Port) ->
     io:format("Starting game server on port ~p~n", [Port]),
     % Start the account server first
+    queuelist:start(),
     case server:start() of
         {ok, _Pid} ->
             io:format("Account server started successfully~n"),
@@ -43,7 +44,7 @@ acceptor(LSock) ->
     case authenticator(Sock) of
         {ok, Username} ->
             io:format("Authentication successful for ~s from ~p:~p~n", [Username, IP, Port]),
-            worker(Sock, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0});
+            queue_handler(Sock);
         {error, Reason} ->
             io:format("Connection closed (~p) from ~p:~p~n", [Reason, IP, Port]),
             gen_tcp:close(Sock)
@@ -95,6 +96,7 @@ handle_create_account(Sock, IP, Username, Password) ->
                 ok ->
                     io:format("Auto-login successful for ~s from ~p~n", [Username, IP]),
                     gen_tcp:send(Sock, "LOGIN_SUCCESS\n"),
+                    queue_handler(Sock),
                     {ok, Username};
                 invalid ->
                     io:format("Auto-login failed for ~s from ~p~n", [Username, IP]),
@@ -117,6 +119,62 @@ parse_auth_input(Data) ->
             {create_account, string:trim(Username), string:trim(Password)};
         _ ->
             {error, "Invalid authentication command"}
+    end.
+
+queue_handler(Sock) ->
+    inet:setopts(Sock, [{active, once}]),
+    receive
+        {tcp, Sock, Data} ->
+            case parse_queue_input(Data) of
+                {add_to_queue, Username} ->
+                    case server:get_player_level(Username) of  % Now using the 1-argument version
+                        {ok, Level} ->
+                            case queuelist:add_to_queue(Username, Level) of
+                                {matched, U1, U2} ->
+                                    io:format("Matched players: ~s and ~s~n", [U1, U2]),
+                                    io:format("Current queue: ~p~n", [queuelist:get_queue()]),
+                                    gen_tcp:send(Sock, "MATCHED " ++ U1 ++ " " ++ U2 ++ "\n"),
+                                    worker(Sock, {?ARENA_WIDTH / 4, (?ARENA_HEIGHT - ?GUI_HEIGHT) / 2 + ?GUI_HEIGHT}, {0, 0});
+                                queued ->
+                                    io:format("User ~s queued~n", [Username]),
+                                    io:format("Current queue: ~p~n", [queuelist:get_queue()]),
+                                    gen_tcp:send(Sock, "QUEUED\n"),
+                                    queue_handler(Sock);
+                                already_queued ->
+                                    gen_tcp:send(Sock, "ALREADY_IN_QUEUE\n"),
+                                    queue_handler(Sock)
+                            end;
+                        {error, _} ->
+                            gen_tcp:send(Sock, "USER_NOT_FOUND\n"),
+                            queue_handler(Sock)
+                    end;
+                {remove_from_queue, Username} ->
+                    io:format("Removing user ~s from queue~n", [Username]),
+                    io:format("Current queue: ~p~n", [queuelist:get_queue()]),
+                    queuelist:remove_from_queue(Username),
+                    gen_tcp:send(Sock, "UNQUEUED\n"),
+                    queue_handler(Sock);
+                {error, _} ->
+                    gen_tcp:send(Sock, "INVALID_QUEUE_COMMAND\n"),
+                    queue_handler(Sock)
+            end;
+        {tcp_closed, Sock} ->
+            io:format("Socket closed.~n"),
+            ok;
+        {tcp_error, Sock, Reason} ->
+            io:format("Socket error: ~p~n", [Reason]),
+            ok
+    end.
+
+parse_queue_input(Data) ->
+    Trimmed = string:trim(Data),
+    case string:split(Trimmed, ":", all) of
+        ["QUEUE", Username] ->
+            {add_to_queue, string:trim(Username)};
+        ["UNQUEUE", Username] ->
+            {remove_from_queue, string:trim(Username)};
+        _ ->
+            {error, "Invalid queue command"}
     end.
 
 worker(Sock, {PlayerX, PlayerY}, {PlayerSpeedX, PlayerSpeedY}) ->
@@ -200,4 +258,4 @@ get_acceleration(right) ->
 get_acceleration(up) ->
     {0, -(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT)};
 get_acceleration(down) ->
-    {0, ?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT}.   
+    {0, ?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT}.

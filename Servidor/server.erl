@@ -1,7 +1,7 @@
 -module(server).
 -export([
     create_account/2, login/2, close_account/2, logout/1,
-    start/0, online/0, queue/1, get_queue/0
+    start/0, online/0, get_player_level/1
 ]).
 
 create_account(User, Pass) -> rpc({create_account, User, Pass}).
@@ -9,8 +9,6 @@ close_account(User, Pass) -> rpc({close_account, User, Pass}).
 login(User, Pass) -> rpc({login, User, Pass}).
 logout(User) -> rpc({logout, User}).
 online() -> rpc(online).
-queue(User) -> rpc({queue, User}).
-get_queue() -> rpc(get_queue).
 
 rpc(Msg) ->
     ?MODULE ! {self(), Msg},
@@ -88,45 +86,17 @@ loop({Map, Queue}) ->
         {Pid, online} ->
             OnlineUsers = [{U, L} || {U, {_, true, L, _}} <- maps:to_list(Map)],
             Pid ! OnlineUsers,
+            loop({Map, Queue});
+
+        {Pid, {get_player_level, Username}} ->
+            case maps:find(Username, Map) of
+                {ok, {_, _, Level, _}} ->
+                    Pid ! {ok, Level};
+                error ->
+                    Pid ! {error, user_not_found}
+            end,
             loop({Map, Queue})
     end.
-
-try_match(Queue) ->
-    List = queue:to_list(Queue),
-    try_match(List, Queue).
-
-try_match([{U1, L1} | Rest], Queue) ->
-    case find_compatible(U1, L1, Rest) of
-        {ok, U2, L2, Remainder} ->
-            Remaining = remove_first({U1, L1}, Remainder),
-            NewQ = lists:foldl(fun queue:in/2, queue:new(), Remaining),
-            io:format("Match found: ~p (Lv~p) vs ~p (Lv~p)~n", [U1, L1, U2, L2]),
-            {matched, NewQ};
-        not_found ->
-            try_match(Rest, Queue)
-    end;
-try_match([], Queue) ->
-    {no_match, Queue}.
-
-find_compatible(U1, L1, [{U2, L2} | T]) ->
-    if abs(L1 - L2) =< 1 ->
-            {ok, U2, L2, [{U1, L1} | remove_first({U2, L2}, T)]};
-       true ->
-            case find_compatible(U1, L1, T) of
-                {ok, U, L, Tail} -> {ok, U, L, [{U2, L2} | Tail]};
-                not_found -> not_found
-            end
-    end;
-find_compatible(_, _, []) -> not_found.
-
-remove_first(Elem, List) ->
-    case lists:splitwith(fun(X) -> X =/= Elem end, List) of
-        {Before, [_ | After]} -> Before ++ After;
-        {Before, []} -> Before
-    end.
-
-user_already_queued(User, Queue) ->
-    lists:any(fun({U, _}) -> U =:= User end, queue:to_list(Queue)).
 
 logout_all_list(Accounts) ->
     lists:map(fun({User, {Pass, _, Level, Visits}}) ->
@@ -143,3 +113,8 @@ save_logged_account(User) ->
 
 logout_account() ->
     file:write_file("../DueloArena/Login.txt", "").
+
+get_player_level(Username) ->
+    rpc({get_player_level, Username}).
+
+

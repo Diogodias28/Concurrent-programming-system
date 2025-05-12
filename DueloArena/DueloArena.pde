@@ -43,6 +43,7 @@ public class DueloArena extends PApplet {
     boolean creatingConfirm = false;
     boolean createAccountError = false;
     String createAccountErrorMessage = "";
+    String loggedInUsername = "";
     
     // Queue screen variables
     boolean inQueue = false;
@@ -54,6 +55,14 @@ public class DueloArena extends PApplet {
     Button backToLoginButton;
     Button submitCreateButton;
 
+
+    boolean upPressed = false;
+    boolean downPressed = false;
+    boolean leftPressed = false;
+    boolean rightPressed = false;
+    String opponentUsername = "";
+    boolean isPlayer1 = false;
+    
     public void settings() {
         size(800, 600);
     }
@@ -71,29 +80,106 @@ public class DueloArena extends PApplet {
       submitCreateButton = new Button(width/2 - 75, 360, 150, 40, "Create Account", color(0, 150, 0), color(255));
     }
     
-    public void draw() {
-        background(240);
-        
-        switch(currentState) {
-            case STATE_IP_INPUT:
-                drawIPInputScreen();
-                break;
-            case STATE_CONNECTING:
-                drawConnectingScreen();
-                break;
-            case STATE_LOGIN:
-                drawLoginScreen();
-                break;
-            case STATE_CREATE_ACCOUNT:
-                drawCreateAccountScreen();
-                break;
-            case STATE_QUEUE:
-                drawQueueScreen();
-                break;
-            case STATE_GAME:
-                // Your game drawing would go here
-                break;
+      public void draw() {
+          background(240);
+          checkServerMessages();
+          
+          switch(currentState) {
+              case STATE_IP_INPUT:
+                  drawIPInputScreen();
+                  break;
+              case STATE_CONNECTING:
+                  drawConnectingScreen();
+                  break;
+              case STATE_LOGIN:
+                  drawLoginScreen();
+                  break;
+              case STATE_CREATE_ACCOUNT:
+                  drawCreateAccountScreen();
+                  break;
+              case STATE_QUEUE:
+                  drawQueueScreen();
+                  break;
+              case STATE_GAME:
+                  drawGameScreen();
+                  break;
+          }
+      }
+      
+    void checkServerMessages() {
+        if (connected && in != null) {
+            try {
+                while (in.ready()) {
+                    String message = in.readLine();
+                    if (message != null) {
+                        handleServerMessage(message);
+                    }
+                }
+            } catch (IOException e) {
+                println("Error reading from server: " + e.getMessage());
+            }
         }
+    }
+    
+    void handleServerMessage(String message) {
+        if (message.startsWith("MATCHED")) {
+            // Message format: "MATCHED username1 username2"
+            String[] parts = message.split(" ");
+            if (parts.length >= 3) {
+                opponentUsername = parts[1].equals(loggedInUsername) ? parts[2] : parts[1];
+                isPlayer1 = parts[1].equals(loggedInUsername);
+                
+                inQueue = false;
+                currentState = STATE_GAME;
+                queueButton.text = "Enter Queue";
+            }
+        }
+    }
+    
+    void drawGameScreen() {
+        // Draw arena background
+        background(0, 50, 100);
+        
+        // Draw GUI area at the top
+        fill(50);
+        rect(0, 0, width, 70);
+        
+        // Draw player info
+        fill(255);
+        textAlign(LEFT, CENTER);
+        textSize(16);
+        text("Player: " + loggedInUsername, 20, 35);
+        text("Opponent: " + opponentUsername, width/2 - 100, 35);
+        
+        // Draw arena boundaries
+        fill(0);
+        rect(0, 70, width, height - 70);
+        
+        // Draw player paddles (simple rectangles for now)
+        fill(255);
+        float paddleWidth = 20;
+        float paddleHeight = 100;
+        
+        // Player 1 paddle (left side)
+        float player1X = 50;
+        float player1Y = height/2 - paddleHeight/2;
+        rect(player1X, player1Y, paddleWidth, paddleHeight);
+        
+        // Player 2 paddle (right side)
+        float player2X = width - 50 - paddleWidth;
+        float player2Y = height/2 - paddleHeight/2;
+        rect(player2X, player2Y, paddleWidth, paddleHeight);
+        
+        // Draw center line
+        stroke(255);
+        strokeWeight(2);
+        line(width/2, 70, width/2, height);
+        noStroke();
+        
+        // Draw controls instructions
+        textAlign(CENTER, CENTER);
+        textSize(14);
+        text("Use arrow keys to move", width/2, height - 30);
     }
     
     void drawIPInputScreen() {
@@ -350,7 +436,7 @@ public class DueloArena extends PApplet {
             queueButton.text = inQueue ? "Leave Queue" : "Enter Queue";
             
             if (connected) {
-                out.println(inQueue ? "QUEUE_JOIN" : "QUEUE_LEAVE");
+                out.println((inQueue ? "QUEUE:" : "UNQUEUE:") +  loggedInUsername);
             }
         }
     }
@@ -400,6 +486,7 @@ public class DueloArena extends PApplet {
             try {
                 String response = in.readLine();
                 if ("LOGIN_SUCCESS".equals(response)) {
+                    loggedInUsername = username; // Store the username
                     currentState = STATE_QUEUE;
                     loginError = false;
                 } else {
