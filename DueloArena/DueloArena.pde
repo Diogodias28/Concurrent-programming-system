@@ -151,73 +151,79 @@ public class DueloArena extends PApplet {
         if (message.startsWith("MATCHED")) {
             String[] parts = message.split(" ");
             if (parts.length >= 2) {
-                // Check if it's a "MATCHED LATE" message
-                if (message.startsWith("MATCHED LATE")) {
-                    if (parts.length >= 3) {
-                        opponentUsername = parts[2];
-                        // Send acknowledgment back to server
-                        out.println("MATCH_FOUND:" + loggedInUsername);
-                        isPlayer1 = !opponentUsername.equals(loggedInUsername);
-                        currentState = STATE_GAME;
-                        resetGamePositions();
-                    }
-                }
-                // Regular MATCHED case
-                else {
-                    opponentUsername = parts[1];
-                    isPlayer1 = !opponentUsername.equals(loggedInUsername);
-                    currentState = STATE_GAME;
-                    resetGamePositions();
-                }
+                out.println("MATCH_FOUND:" + loggedInUsername);
+                opponentUsername = parts[1];
+                isPlayer1 = !opponentUsername.equals(loggedInUsername);
+                currentState = STATE_GAME;
+                resetGamePositions();
             }
         }
-        else if (message.startsWith("P1:")) {  // This is our custom game state message
-            // Split the message into components
-            String[] components = message.split("\\|");
-            
-            // Create a map to store the values
-            HashMap<String, String> gameState = new HashMap<String, String>();
-            
-            // Parse each component
-            for (String component : components) {
-                String[] keyValue = component.split(":");
-                if (keyValue.length == 2) {
-                    gameState.put(keyValue[0], keyValue[1]);
-                }
-            }
-            
-            // Update game state based on which player we are
-            if (isPlayer1) {
-                playerX = width/4;  // Player 1 is always on the left
-                opponentX = 3*width/4;  // Player 2 is always on the right
-            } else {
-                playerX = 3*width/4;  // Player 2 is on the right
-                opponentX = width/4;  // Player 1 is on the left
-            }
-            
-            // Y positions are fixed in the middle (with GUI offset)
-            playerY = (ARENA_HEIGHT)/2 + GUI_HEIGHT;
-            opponentY = (ARENA_HEIGHT)/2 + GUI_HEIGHT;
-            
-            // Update scores
-            if (gameState.containsKey("S1") && gameState.containsKey("S2")) {
-                try {
-                    player1Score = Integer.parseInt(gameState.get("S1"));
-                    player2Score = Integer.parseInt(gameState.get("S2"));
-                } catch (NumberFormatException e) {
-                    println("Error parsing scores: " + e);
-                }
-            }
-            
-            // Update time if needed
-            if (gameState.containsKey("T")) {
-                try {
-                    //gameTime = Integer.parseInt(gameState.get("T"));
-                } catch (NumberFormatException e) {
-                    println("Error parsing time: " + e);
-                }
-            }
-        }
+            else if (message.startsWith("P1:")) {
+              // Split the message into components
+              String[] components = message.split("\\|");
+              
+              // Create a map to store the values
+              HashMap<String, String> gameState = new HashMap<String, String>();
+              
+              // Parse each component
+              for (String component : components) {
+                  String[] keyValue = component.split(":", 2); // Split on first colon only
+                  if (keyValue.length == 2) {
+                      gameState.put(keyValue[0], keyValue[1]);
+                  }
+              }
+              
+              // Update positions based on which player we are
+              if (gameState.containsKey("P1_POS") && gameState.containsKey("P2_POS")) {
+                  try {
+                      // Parse positions (format "{x,y}")
+                      String p1PosStr = gameState.get("P1_POS").replace("{", "").replace("}", "");
+                      String p2PosStr = gameState.get("P2_POS").replace("{", "").replace("}", "");
+                      
+                      String[] p1Pos = p1PosStr.split(",");
+                      String[] p2Pos = p2PosStr.split(",");
+                      
+                      float p1X = Float.parseFloat(p1Pos[0].trim());
+                      float p1Y = Float.parseFloat(p1Pos[1].trim());
+                      float p2X = Float.parseFloat(p2Pos[0].trim());
+                      float p2Y = Float.parseFloat(p2Pos[1].trim());
+                      
+                      if (isPlayer1) {
+                          playerX = p1X;
+                          playerY = p1Y + GUI_HEIGHT; // Add GUI offset
+                          opponentX = p2X;
+                          opponentY = p2Y + GUI_HEIGHT; // Add GUI offset
+                      } else {
+                          playerX = p2X;
+                          playerY = p2Y + GUI_HEIGHT; // Add GUI offset
+                          opponentX = p1X;
+                          opponentY = p1Y + GUI_HEIGHT; // Add GUI offset
+                      }
+                  } catch (Exception e) {
+                      println("Error parsing positions: " + e);
+                      e.printStackTrace();
+                  }
+              }
+              
+              // Update scores
+              if (gameState.containsKey("P1_SCORE") && gameState.containsKey("P2_SCORE")) {
+                  try {
+                      player1Score = Integer.parseInt(gameState.get("P1_SCORE"));
+                      player2Score = Integer.parseInt(gameState.get("P2_SCORE"));
+                  } catch (NumberFormatException e) {
+                      println("Error parsing scores: " + e);
+                  }
+              }
+              
+              // Update time if needed
+              if (gameState.containsKey("TIME")) {
+                  try {
+                      //gameTime = Integer.parseInt(gameState.get("TIME"));
+                  } catch (NumberFormatException e) {
+                      println("Error parsing time: " + e);
+                  }
+              }
+          }
     }
     
     void drawGameScreen() {

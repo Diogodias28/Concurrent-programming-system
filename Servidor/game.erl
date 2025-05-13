@@ -138,7 +138,8 @@ queue_handler(Sock) ->
                                     io:format("Sock is: ~p~n", [Sock]),
                                     io:format("Sockets matched: ~p and ~p~n", [Sock1, Sock2]),
                                     io:format("Matched players: ~s and ~s~n", [U1, U2]),
-                                    comecarjogo(Sock1, U1, Sock2, U2);
+                                    comecarjogo(Sock1, U1, Sock2, U2),
+                                    ciclojogo(Username, Sock);
                                 queued ->
                                     io:format("Socket ~p queued for user ~s~n", [Sock, Username]),
                                     gen_tcp:send(Sock, "QUEUED\n"),
@@ -176,6 +177,7 @@ queue_handler(Sock) ->
 
 parse_queue_input(Data) ->
     Trimmed = string:trim(Data),
+    io:format("Parsing queue input: ~s~n", [Trimmed]),
     case string:split(Trimmed, ":", all) of
         ["QUEUE", Username] ->
             {add_to_queue, string:trim(Username)};
@@ -191,7 +193,7 @@ parse_queue_input(Data) ->
 
 comecarjogo(Sock1, Username1, Sock2, Username2) ->
     io:format("Starting game between ~s and ~s~n", [Username1, Username2]),
-    gen_tcp:send(Sock1, "MATCHED LATE " ++ Username2 ++ "\n"),
+    gen_tcp:send(Sock1, "MATCHED " ++ Username2 ++ "\n"),
     gen_tcp:send(Sock2, "MATCHED " ++ Username1 ++ "\n"),
     % Initialize game state
     NewPartida = #partida{
@@ -209,8 +211,7 @@ comecarjogo(Sock1, Username1, Sock2, Username2) ->
     add_partida(NewPartida),
     io:format("Partida added: ~p~n", [NewPartida]),
     % Spawn gestorPartidas in a separate process
-    spawn(fun() -> gestorPartidas(Username1) end),
-    ciclojogo(Username2, Sock2).
+    spawn(fun() -> gestorPartidas(Username1) end).
     
 
 ciclojogo(Player, Sock) ->
@@ -260,7 +261,33 @@ handle_player_input(GameState, PlayerName, Data) ->
             UpdatedGameState = GameState#partida{player1Score = NewScore},
             UpdatedGameState;
         ["MOVE", "UP"] ->
-            % Retrieve the partida dynamically using PlayerName
+            case partidas:get_partida_by_player(PlayerName) of
+                {ok, NewGameState} ->
+                    UpdatedGameState =
+                        case PlayerName == NewGameState#partida.player1 of
+                            true ->
+                                {NewAcc} = calculate_acceleration(
+                                    element(2, NewGameState#partida.player1acceleration),
+                                    -?ACCELERATION_INCREMENT
+                                ),
+                                NewGameState#partida{
+                                    player1acceleration = {element(1, NewGameState#partida.player1acceleration), NewAcc}
+                                };
+                            false when PlayerName == NewGameState#partida.player2 ->
+                                {NewAcc} = calculate_acceleration(
+                                    element(2, NewGameState#partida.player2acceleration),
+                                    -?ACCELERATION_INCREMENT
+                                ),
+                                NewGameState#partida{
+                                    player2acceleration = {element(1, NewGameState#partida.player2acceleration), NewAcc}
+                                }
+                        end,
+                    UpdatedGameState;
+                {error, not_found} ->
+                    io:format("No partida found for player ~s~n", [PlayerName]),
+                    GameState
+            end;
+        ["MOVE", "DOWN"] ->
             case partidas:get_partida_by_player(PlayerName) of
                 {ok, NewGameState} ->
                     UpdatedGameState =
@@ -287,15 +314,75 @@ handle_player_input(GameState, PlayerName, Data) ->
                     io:format("No partida found for player ~s~n", [PlayerName]),
                     GameState
             end;
-        ["MOVE", "DOWN"] -> {move, down};
-        ["MOVE", "LEFT"] -> {move, left};
-        ["MOVE", "RIGHT"] -> {move, right};
+        ["MOVE", "LEFT"] ->
+            case partidas:get_partida_by_player(PlayerName) of
+                {ok, NewGameState} ->
+                    UpdatedGameState =
+                        case PlayerName == NewGameState#partida.player1 of
+                            true ->
+                                {NewAcc} = calculate_acceleration(
+                                    element(2, NewGameState#partida.player1acceleration),
+                                    -?ACCELERATION_INCREMENT
+                                ),
+                                NewGameState#partida{
+                                    player1acceleration = {NewAcc,element(2, NewGameState#partida.player1acceleration)}
+                                };
+                            false when PlayerName == NewGameState#partida.player2 ->
+                                {NewAcc} = calculate_acceleration(
+                                    element(2, NewGameState#partida.player2acceleration),
+                                    -?ACCELERATION_INCREMENT
+                                ),
+                                NewGameState#partida{
+                                    player2acceleration = {NewAcc,element(2, NewGameState#partida.player2acceleration)}
+                                }
+                        end,
+                    UpdatedGameState;
+                {error, not_found} ->
+                    io:format("No partida found for player ~s~n", [PlayerName]),
+                    GameState
+            end;
+        ["MOVE", "RIGHT"] -> 
+            case partidas:get_partida_by_player(PlayerName) of
+                {ok, NewGameState} ->
+                    UpdatedGameState =
+                        case PlayerName == NewGameState#partida.player1 of
+                            true ->
+                                {NewAcc} = calculate_acceleration(
+                                    element(2, NewGameState#partida.player1acceleration),
+                                    ?ACCELERATION_INCREMENT
+                                ),
+                                NewGameState#partida{
+                                    player1acceleration = {NewAcc,element(2, NewGameState#partida.player1acceleration)}
+                                };
+                            false when PlayerName == NewGameState#partida.player2 ->
+                                {NewAcc} = calculate_acceleration(
+                                    element(2, NewGameState#partida.player2acceleration),
+                                    ?ACCELERATION_INCREMENT
+                                ),
+                                NewGameState#partida{
+                                    player2acceleration = {NewAcc,element(2, NewGameState#partida.player2acceleration)}
+                                }
+                        end,
+                    UpdatedGameState;
+                {error, not_found} ->
+                    io:format("No partida found for player ~s~n", [PlayerName]),
+                    GameState
+            end;
         ["STOP", "UP"] -> 
             io:format("Stopping UP for player ~s~n", [PlayerName]),
             GameState;
-        ["STOP", "DOWN"] -> {stop, down};
-        ["STOP", "LEFT"] -> {stop, left};
-        ["STOP", "RIGHT"] -> {stop, right};
+        ["STOP", "DOWN"] -> 
+            io:format("Stopping DOWN for player ~s~n", [PlayerName]),
+            GameState;
+        ["STOP", "LEFT"] -> 
+            io:format("Stopping LEFT for player ~s~n", [PlayerName]),
+            GameState;
+        ["STOP", "RIGHT"] -> 
+            io:format("Stopping RIGHT for player ~s~n", [PlayerName]),
+            GameState;
+        ["MATCH_FOUND", Username] ->
+            io:format("Match found for player ~s~n", [Username]),
+            GameState;
         _ ->
             io:format("Unknown input: ~s~n", [Data]),
             GameState
@@ -389,12 +476,16 @@ wait_for_continue() ->
 
 send_partida(Partida) ->
     % Convert the partida record to a custom delimited string
-    CustomData = io_lib:format("P1:~s|P2:~s|S1:~p|S2:~p|T:~p",
+    CustomData = io_lib:format("P1:~s|P2:~s|P1_POS:~w|P2_POS:~w|P1_SCORE:~p|P2_SCORE:~p|TIME:~p",
                                [Partida#partida.player1,
                                 Partida#partida.player2,
+                                Partida#partida.player1Position,
+                                Partida#partida.player2Position,
                                 Partida#partida.player1Score,
                                 Partida#partida.player2Score,
                                 Partida#partida.time]),
+
+    %io:format("Sending partida data: ~s~n", [CustomData]),
     % Send the custom delimited data to both players
     gen_tcp:send(Partida#partida.sock1, CustomData ++ "\n"),
     gen_tcp:send(Partida#partida.sock2, CustomData ++ "\n").
