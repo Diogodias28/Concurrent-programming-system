@@ -224,6 +224,7 @@ ciclojogo(Player, Sock) ->
                 {ok, GameState} ->
                     io:format("GameState for ~s: ~p~n", [Player, GameState]),
                     UpdatedGameState = handle_player_input(GameState, Player, Data),
+                    io:format("Updated GameState: ~p~n", [UpdatedGameState]),
                     update_partida(GameState#partida.player1, UpdatedGameState),
                     ciclojogo(Player, Sock);
                 {error, not_found} ->
@@ -261,38 +262,26 @@ handle_player_input(GameState, PlayerName, Data) ->
         ["MOVE", "UP"] ->
             % Retrieve the partida dynamically using PlayerName
             case partidas:get_partida_by_player(PlayerName) of
-                {ok, GameState} ->
-                    {AccX, AccY} = get_acceleration(up),
+                {ok, NewGameState} ->
                     UpdatedGameState =
-                        case PlayerName == GameState#partida.player1 of
+                        case PlayerName == NewGameState#partida.player1 of
                             true ->
-                                {NewSpeedX, NewSpeedY} = calculate_velocity(
-                                    element(1, GameState#partida.palyer1Speed),
-                                    element(2, GameState#partida.palyer1Speed),
-                                    AccX, AccY),
-                                {NewPosX, NewPosY} = calculate_position(
-                                    element(1, GameState#partida.player1Position),
-                                    element(2, GameState#partida.player1Position),
-                                    NewSpeedX, NewSpeedY),
-                                GameState#partida{
-                                    palyer1Speed = {NewSpeedX, NewSpeedY},
-                                    player1Position = {NewPosX, NewPosY}
+                                {NewAcc} = calculate_acceleration(
+                                    element(2, NewGameState#partida.player1acceleration),
+                                    ?ACCELERATION_INCREMENT
+                                ),
+                                NewGameState#partida{
+                                    player1acceleration = {element(1, NewGameState#partida.player1acceleration), NewAcc}
                                 };
-                            false when PlayerName == GameState#partida.player2 ->
-                                {NewSpeedX, NewSpeedY} = calculate_velocity(
-                                    element(1, GameState#partida.player2Speed),
-                                    element(2, GameState#partida.player2Speed),
-                                    AccX, AccY),
-                                {NewPosX, NewPosY} = calculate_position(
-                                    element(1, GameState#partida.player2Position),
-                                    element(2, GameState#partida.player2Position),
-                                    NewSpeedX, NewSpeedY),
-                                GameState#partida{
-                                    player2Speed = {NewSpeedX, NewSpeedY},
-                                    player2Position = {NewPosX, NewPosY}
+                            false when PlayerName == NewGameState#partida.player2 ->
+                                {NewAcc} = calculate_acceleration(
+                                    element(2, NewGameState#partida.player2acceleration),
+                                    ?ACCELERATION_INCREMENT
+                                ),
+                                NewGameState#partida{
+                                    player2acceleration = {element(1, NewGameState#partida.player2acceleration), NewAcc}
                                 }
                         end,
-                    partidas:update_partida(GameState#partida.player1, UpdatedGameState),
                     UpdatedGameState;
                 {error, not_found} ->
                     io:format("No partida found for player ~s~n", [PlayerName]),
@@ -301,7 +290,9 @@ handle_player_input(GameState, PlayerName, Data) ->
         ["MOVE", "DOWN"] -> {move, down};
         ["MOVE", "LEFT"] -> {move, left};
         ["MOVE", "RIGHT"] -> {move, right};
-        ["STOP", "UP"] -> {stop, up};
+        ["STOP", "UP"] -> 
+            io:format("Stopping UP for player ~s~n", [PlayerName]),
+            GameState;
         ["STOP", "DOWN"] -> {stop, down};
         ["STOP", "LEFT"] -> {stop, left};
         ["STOP", "RIGHT"] -> {stop, right};
@@ -311,9 +302,9 @@ handle_player_input(GameState, PlayerName, Data) ->
     end.
 
 
-calculate_velocity(SpeedX, SpeedY, AccX, AccY) ->
-    NewSpeedX = speed_limit(SpeedX + AccX, -?MAX_SPEED, ?MAX_SPEED) * ?FRICTION,
-    NewSpeedY = speed_limit(SpeedY + AccY, -?MAX_SPEED, ?MAX_SPEED) * ?FRICTION,
+calculate_velocity(SpeedX, SpeedY, {AccX, AccY}) ->
+    NewSpeedX = speed_limit(SpeedX + AccX, ?MAX_SPEED, -?MAX_SPEED) * ?FRICTION,
+    NewSpeedY = speed_limit(SpeedY + AccY, ?MAX_SPEED, -?MAX_SPEED) * ?FRICTION,
     {NewSpeedX, NewSpeedY}.
 
 calculate_position(X, Y, SpeedX, SpeedY) ->
@@ -329,15 +320,42 @@ speed_limit(Vel, Max, Min) ->
             Vel
     end.
 
-get_acceleration(left) ->
-    {-(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT), 0};
-get_acceleration(right) ->
-    {?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT, 0};
-get_acceleration(up) ->
-    {0, -(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT)};
-get_acceleration(down) ->
-    {0, ?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT}.
+calculate_acceleration(Acc, AccAmount) ->
+    NewAcc = speed_limit(Acc + AccAmount, ?MAX_SPEED, -?MAX_SPEED),
+    {NewAcc}.
 
+calculate_playerPosition(Partida) ->
+    {Player1X, Player1Y} = Partida#partida.player1Position,
+    {Player2X, Player2Y} = Partida#partida.player2Position,
+    {Player1SpeedX, Player1SpeedY} = Partida#partida.player1Speed,
+    {Player2SpeedX, Player2SpeedY} = Partida#partida.player2Speed,
+    {Player1AccX, Player1AccY} = Partida#partida.player1acceleration,
+    {Player2AccX, Player2AccY} = Partida#partida.player2acceleration,
+
+    % Calculate new velocities based on acceleration
+    {NewPlayer1SpeedX, NewPlayer1SpeedY} = calculate_velocity(Player1SpeedX, Player1SpeedY, {Player1AccX, Player1AccY}),
+    {NewPlayer2SpeedX, NewPlayer2SpeedY} = calculate_velocity(Player2SpeedX, Player2SpeedY, {Player2AccX, Player2AccY}),
+
+    % Calculate new positions based on velocity
+    {NewPlayer1PosX, NewPlayer1PosY} = calculate_position(Player1X, Player1Y, NewPlayer1SpeedX, NewPlayer1SpeedY),
+    {NewPlayer2PosX, NewPlayer2PosY} = calculate_position(Player2X, Player2Y, NewPlayer2SpeedX, NewPlayer2SpeedY),
+
+    % Apply friction to acceleration
+    NewPlayer1AccX = Player1AccX * ?FRICTION,
+    NewPlayer1AccY = Player1AccY * ?FRICTION,
+    NewPlayer2AccX = Player2AccX * ?FRICTION,
+    NewPlayer2AccY = Player2AccY * ?FRICTION,
+
+    % Update the partida record
+    UpdatedPartida = Partida#partida{
+        player1Position = {NewPlayer1PosX, NewPlayer1PosY},
+        player2Position = {NewPlayer2PosX, NewPlayer2PosY},
+        player1acceleration = {NewPlayer1AccX, NewPlayer1AccY},
+        player2acceleration = {NewPlayer2AccX, NewPlayer2AccY},
+        player1Speed = {NewPlayer1SpeedX, NewPlayer1SpeedY},
+        player2Speed = {NewPlayer2SpeedX, NewPlayer2SpeedY}
+    },
+    UpdatedPartida.
 
 gestorPartidas(Username1) ->
     %io:format("GestorPartidas called for ~s~n", [Username1]),
@@ -347,7 +365,16 @@ gestorPartidas(Username1) ->
             %io:format("Partida found for ~s: ~p~n", [Username1, P]),
             % Debug print before sending partida
             %io:format("Sending partida to client: ~p~n", [P]),
-            send_partida(P),
+            UpdatedPartida = calculate_playerPosition(P),
+            %io:format("Updated partida: ~p~n", [UpdatedPartida]),
+            update_partida(Username1, UpdatedPartida),
+
+            %check collision
+            %atualizar projeteis
+            %ver se spawna modificador
+            %check if game is over
+
+            send_partida(UpdatedPartida),
             erlang:send_after(16, self(), {continue, Username1}),
             wait_for_continue();
         {error, not_found} ->
