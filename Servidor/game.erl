@@ -230,12 +230,12 @@ ciclojogo(Player1, Sock1, Sock2) ->
         {tcp_closed, Sock1} ->
             GameState = get_partida_by_player(Player1),
             io:format("Player 1 (~s) disconnected~n", [GameState#partida.player1]);
-            %end_game(GameState, 2); % Player 2 wins
+            end_game(GameState, 2); % Player 2 wins
         {tcp_closed, Sock2} ->
             GameState = get_partida_by_player(Player1),
             io:format("Player 2 (~s) disconnected~n", [GameState#partida.player2]),
             ok
-            %end_game(GameState, 1); % Player 1 wins
+            end_game(GameState, 1); % Player 1 wins
     end.
 
 handle_player_input(GameState, PlayerNum, Data) ->
@@ -291,3 +291,28 @@ send_partida(Partida) ->
     % Send the custom delimited data to both players
     gen_tcp:send(Partida#partida.sock1, CustomData ++ "\n"),
     gen_tcp:send(Partida#partida.sock2, CustomData ++ "\n").
+
+end_game(GameState, Winner) ->
+    Player1 = GameState#partida.player1,
+    Player2 = GameState#partida.player2,
+    io:format("Game ended. Winner: ~p~n", [Winner]),
+
+    {WinnerUsername, LoserUsername} = 
+        case Winner of
+            1 -> {Player1, Player2};
+            2 -> {Player2, Player1};
+            _ -> {Player1, Player2}
+        end,
+
+    WinnerLevel = get_player_level(WinnerUsername),
+    LoserLevel = get_player_level(LoserUsername),
+    WinnerStrak = server:get_player_streak(WinnerUsername),
+    LoserStreak = server:get_player_streak(LoserUsername),
+
+    server:update_account_stats(WinnerUsername, WinnerLevel, WinnerStrak, 1),
+    server:update_account_stats(LoserUsername, LoserLevel, LoserStreak, -1), 
+
+    gen_tcp:send(GameState#partida.sock1, io_lib:format("GAME_OVER: Winner - ~s\n", [WinnerUsername])),
+    gen_tcp:send(GameState#partida.sock2, io_lib:format("GAME_OVER: Winner - ~s\n", [WinnerUsername])),
+    
+    remove_partida(Player1).
