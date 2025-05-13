@@ -60,7 +60,7 @@ user_in_queue(User, Queue) ->
     lists:keymember(User, 1, queue:to_list(Queue)).
 
 remove_user(User, Queue) ->
-    Filtered = lists:filter(fun({U, _}) -> U =/= User end, queue:to_list(Queue)),
+    Filtered = lists:filter(fun({U, _, _}) -> U =/= User end, queue:to_list(Queue)),
     queue:from_list(Filtered).
 
 % In queuelist.erl, modify the try_match function

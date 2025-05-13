@@ -6,7 +6,7 @@ import java.io.PrintWriter;
 import java.net.Socket;
 import javax.swing.JOptionPane;
 
-public class DueloArena extends PApplet {
+public class DueloArena2 extends PApplet {
     // Configurações da arena
     final int ARENA_WIDTH = 800;
     final int ARENA_HEIGHT = 600;
@@ -68,6 +68,8 @@ public class DueloArena extends PApplet {
     boolean creatingConfirm = false;
     boolean createAccountError = false;
     String createAccountErrorMessage = "";
+    
+    int player1Score = 0, player2Score = 0;
     
     // UI elements
     Button queueButton;
@@ -143,25 +145,77 @@ public class DueloArena extends PApplet {
         }
     }
     
-    void handleServerMessage(String message) {
+   void handleServerMessage(String message) {
         println("Server message: " + message);
         
         if (message.startsWith("MATCHED")) {
             String[] parts = message.split(" ");
             if (parts.length >= 2) {
-                opponentUsername = parts[1];
-                isPlayer1 = !opponentUsername.equals(loggedInUsername);
-                currentState = STATE_GAME;
-                resetGamePositions();
+                // Check if it's a "MATCHED LATE" message
+                if (message.startsWith("MATCHED LATE")) {
+                    if (parts.length >= 3) {
+                        opponentUsername = parts[2];
+                        // Send acknowledgment back to server
+                        out.println("MATCH_FOUND:" + loggedInUsername);
+                        isPlayer1 = !opponentUsername.equals(loggedInUsername);
+                        currentState = STATE_GAME;
+                        resetGamePositions();
+                    }
+                } 
+                // Regular MATCHED case
+                else {
+                    opponentUsername = parts[1];
+                    isPlayer1 = !opponentUsername.equals(loggedInUsername);
+                    currentState = STATE_GAME;
+                    resetGamePositions();
+                }
             }
-        } 
-        else if (message.startsWith("GAME_STATE")) {
-            String[] parts = message.split(" ");
-            if (parts.length >= 5) {
-                playerX = Float.parseFloat(parts[1]);
-                playerY = Float.parseFloat(parts[2]);
-                opponentX = Float.parseFloat(parts[3]);
-                opponentY = Float.parseFloat(parts[4]);
+        }
+        else if (message.startsWith("P1:")) {  // This is our custom game state message
+            // Split the message into components
+            String[] components = message.split("\\|");
+            
+            // Create a map to store the values
+            HashMap<String, String> gameState = new HashMap<String, String>();
+            
+            // Parse each component
+            for (String component : components) {
+                String[] keyValue = component.split(":");
+                if (keyValue.length == 2) {
+                    gameState.put(keyValue[0], keyValue[1]);
+                }
+            }
+            
+            // Update game state based on which player we are
+            if (isPlayer1) {
+                playerX = width/4;  // Player 1 is always on the left
+                opponentX = 3*width/4;  // Player 2 is always on the right
+            } else {
+                playerX = 3*width/4;  // Player 2 is on the right
+                opponentX = width/4;  // Player 1 is on the left
+            }
+            
+            // Y positions are fixed in the middle (with GUI offset)
+            playerY = (ARENA_HEIGHT)/2 + GUI_HEIGHT;
+            opponentY = (ARENA_HEIGHT)/2 + GUI_HEIGHT;
+            
+            // Update scores
+            if (gameState.containsKey("S1") && gameState.containsKey("S2")) {
+                try {
+                    player1Score = Integer.parseInt(gameState.get("S1"));
+                    player2Score = Integer.parseInt(gameState.get("S2"));
+                } catch (NumberFormatException e) {
+                    println("Error parsing scores: " + e);
+                }
+            }
+            
+            // Update time if needed
+            if (gameState.containsKey("T")) {
+                try {
+                    //gameTime = Integer.parseInt(gameState.get("T"));
+                } catch (NumberFormatException e) {
+                    println("Error parsing time: " + e);
+                }
             }
         }
     }
@@ -196,7 +250,7 @@ public class DueloArena extends PApplet {
         // Score and timer
         textAlign(CENTER, CENTER);
         textSize(24);
-        text("0 - 0", width/2, GUI_HEIGHT/2);
+        text(player1Score + " - " + player2Score, width/2, GUI_HEIGHT/2);
         
         // Separator line
         stroke(150);
@@ -261,6 +315,10 @@ public class DueloArena extends PApplet {
                 case 'D':
                     moveRight = pressed;
                     out.println(pressed ? "KEY_PRESS:RIGHT" : "KEY_RELEASE:RIGHT");
+                    break;
+                case'q':
+                case 'Q':
+                    out.println("PLAYER1SCORE");
                     break;
             }
         }
@@ -792,6 +850,6 @@ public class DueloArena extends PApplet {
     }
     
     public static void main(String[] args) {
-        PApplet.main("DueloArena");
+        PApplet.main("DueloArena2");
     }
 }

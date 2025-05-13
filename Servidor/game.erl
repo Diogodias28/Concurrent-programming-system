@@ -135,10 +135,14 @@ queue_handler(Sock) ->
                         {ok, Level} ->
                             case queuelist:add_to_queue(Username, Level, Sock) of
                                 {matched, U1, Sock1, U2, Sock2} ->
+                                    io:format("Sock is: ~p~n", [Sock]),
+                                    io:format("Sockets matched: ~p and ~p~n", [Sock1, Sock2]),
                                     io:format("Matched players: ~s and ~s~n", [U1, U2]),
                                     comecarjogo(Sock1, U1, Sock2, U2);
                                 queued ->
+                                    io:format("Socket ~p queued for user ~s~n", [Sock, Username]),
                                     gen_tcp:send(Sock, "QUEUED\n"),
+                                    io:format("current queue: ~p~n", [get_queue()]),
                                     queue_handler(Sock);
                                 already_queued ->
                                     gen_tcp:send(Sock, "ALREADY_IN_QUEUE\n"),
@@ -152,10 +156,13 @@ queue_handler(Sock) ->
                     io:format("Removing user ~s from queue~n", [Username]),
                     queuelist:remove_from_queue(Username),
                     gen_tcp:send(Sock, "UNQUEUED\n"),
+                    io:format("current queue: ~p~n", [get_queue()]),
                     queue_handler(Sock);
-                {close_function} ->
-                    io:format("Closing function for user~n");
+                {close_function, Username} ->
+                    io:format("Closing function for user~n"),
+                    ciclojogo(Username, Sock);
                 {error, _} ->
+                    io:format("Invalid queue command: ~s~n", [Data]),
                     gen_tcp:send(Sock, "INVALID_QUEUE_COMMAND\n"),
                     queue_handler(Sock)
             end;
@@ -174,8 +181,8 @@ parse_queue_input(Data) ->
             {add_to_queue, string:trim(Username)};
         ["UNQUEUE", Username] ->
             {remove_from_queue, string:trim(Username)};
-        ["MATCH_FOUND"] ->
-            {close_function};
+        ["MATCH_FOUND", Username] ->
+            {close_function, Username};
         _ ->
             {error, "Invalid queue command"}
     end.
@@ -184,7 +191,7 @@ parse_queue_input(Data) ->
 
 comecarjogo(Sock1, Username1, Sock2, Username2) ->
     io:format("Starting game between ~s and ~s~n", [Username1, Username2]),
-    gen_tcp:send(Sock1, "MATCHED " ++ Username2 ++ "\n"),
+    gen_tcp:send(Sock1, "MATCHED LATE " ++ Username2 ++ "\n"),
     gen_tcp:send(Sock2, "MATCHED " ++ Username1 ++ "\n"),
     % Initialize game state
     NewPartida = #partida{
@@ -203,55 +210,53 @@ comecarjogo(Sock1, Username1, Sock2, Username2) ->
     io:format("Partida added: ~p~n", [NewPartida]),
     % Spawn gestorPartidas in a separate process
     spawn(fun() -> gestorPartidas(Username1) end),
-    % Start the game loop
-    ciclojogo(Username1, Sock1, Sock2).
+    ciclojogo(Username2, Sock2).
     
 
-ciclojogo(Player1, Sock1, Sock2) ->
-    io:format("Entering game loop for ~s~n", [Player1]),
-    inet:setopts(Sock1, [{active, once}]),
-    inet:setopts(Sock2, [{active, once}]),
+ciclojogo(Player, Sock) ->
+    io:format("Entering game loop for ~s~n", [Player]),
+    inet:setopts(Sock, [{active, once}]),
     
     receive
-        {tcp, Sock1, Data} ->
-            io:format("Received input from Player 1: ~s~n", [Data]),
-            GameState = get_partida_by_player(Player1),
-            io:format("GameState for Player 1: ~p~n", [GameState]),
-            UpdatedGameState = handle_player_input(GameState, 1, Data),
-            update_partida(GameState#partida.player1, UpdatedGameState),
-            ciclojogo(Player1, Sock1, Sock2);
-        {tcp, Sock2, Data} ->
-            io:format("Received input from Player 2: ~s~n", [Data]),
-            GameState = get_partida_by_player(Player1),
-            io:format("GameState for Player 2: ~p~n", [GameState]),
-            UpdatedGameState = handle_player_input(GameState, 2, Data),
-            update_partida(GameState#partida.player1, UpdatedGameState),
-            ciclojogo(Player1, Sock1, Sock2);
-        {tcp_closed, Sock1} ->
-            GameState = get_partida_by_player(Player1),
-            io:format("Player 1 (~s) disconnected~n", [GameState#partida.player1]),
-            end_game(GameState, 2); % Player 2 wins
-        {tcp_closed, Sock2} ->
-            GameState = get_partida_by_player(Player1),
-            io:format("Player 2 (~s) disconnected~n", [GameState#partida.player2]),
-            ok,
-            end_game(GameState, 1) % Player 1 wins
+        {tcp, Sock, Data} ->
+            io:format("Received input from ~s: ~s~n", [Player, Data]),
+            case get_partida_by_player(Player) of
+                {ok, GameState} ->
+                    io:format("GameState for ~s: ~p~n", [Player, GameState]),
+                    UpdatedGameState = handle_player_input(GameState, Player, Data),
+                    update_partida(GameState#partida.player1, UpdatedGameState),
+                    ciclojogo(Player, Sock);
+                {error, not_found} ->
+                    io:format("No partida found for player ~s~n", [Player]),
+                    ok
+            end;
+        {tcp_closed, Sock} ->
+            case get_partida_by_player(Player) of
+                {ok, GameState} ->
+                    io:format("Player (~s) disconnected~n", [Player]);
+                    %OtherPlayer = case Player of
+                    %    GameState#partida.player1 -> GameState#partida.player2;
+                    %    GameState#partida.player2 -> GameState#partida.player1
+                    %end,
+                    %end_game(GameState, OtherPlayer);
+                {error, not_found} ->
+                    io:format("No partida found for player ~s after disconnection~n", [Player]),
+                    ok
+            end;
+        {error, _} ->
+            io:format("Error in game loop for ~s~n", [Player]),
+            ciclojogo(Player, Sock)
     end.
 
 handle_player_input(GameState, PlayerNum, Data) ->
     io:format("Handling input for Player ~p: ~s~n", [PlayerNum, Data]),
     Trimmed = string:trim(Data),
     case string:split(Trimmed, ":", all) of
-        ["PLAYER1SCORE", Score] ->
-            NewScore = string:to_integer(Score),
-            io:format("Updating Player 1 score to ~p~n", [NewScore]),
+        ["PLAYER1SCORE"] ->
+            CurrentScore = GameState#partida.player1Score,
+            NewScore = CurrentScore + 1,
+            io:format("Increasing Player 1 score from ~p to ~p~n", [CurrentScore, NewScore]),
             UpdatedGameState = GameState#partida{player1Score = NewScore},
-            update_partida(GameState#partida.player1, UpdatedGameState),
-            UpdatedGameState;
-        ["PLAYER2SCORE", Score] ->
-            NewScore = string:to_integer(Score),
-            io:format("Updating Player 2 score to ~p~n", [NewScore]),
-            UpdatedGameState = GameState#partida{player2Score = NewScore},
             update_partida(GameState#partida.player1, UpdatedGameState),
             UpdatedGameState;
         _ ->
