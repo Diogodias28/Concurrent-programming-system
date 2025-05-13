@@ -248,8 +248,8 @@ ciclojogo(Player, Sock) ->
             ciclojogo(Player, Sock)
     end.
 
-handle_player_input(GameState, PlayerNum, Data) ->
-    io:format("Handling input for Player ~p: ~s~n", [PlayerNum, Data]),
+handle_player_input(GameState, PlayerName, Data) ->
+    io:format("Handling input for Player ~p: ~s~n", [PlayerName, Data]),
     Trimmed = string:trim(Data),
     case string:split(Trimmed, ":", all) of
         ["PLAYER1SCORE"] ->
@@ -257,12 +257,87 @@ handle_player_input(GameState, PlayerNum, Data) ->
             NewScore = CurrentScore + 1,
             io:format("Increasing Player 1 score from ~p to ~p~n", [CurrentScore, NewScore]),
             UpdatedGameState = GameState#partida{player1Score = NewScore},
-            update_partida(GameState#partida.player1, UpdatedGameState),
             UpdatedGameState;
+        ["MOVE", "UP"] ->
+            % Retrieve the partida dynamically using PlayerName
+            case partidas:get_partida_by_player(PlayerName) of
+                {ok, GameState} ->
+                    {AccX, AccY} = get_acceleration(up),
+                    UpdatedGameState =
+                        case PlayerName == GameState#partida.player1 of
+                            true ->
+                                {NewSpeedX, NewSpeedY} = calculate_velocity(
+                                    element(1, GameState#partida.palyer1Speed),
+                                    element(2, GameState#partida.palyer1Speed),
+                                    AccX, AccY),
+                                {NewPosX, NewPosY} = calculate_position(
+                                    element(1, GameState#partida.player1Position),
+                                    element(2, GameState#partida.player1Position),
+                                    NewSpeedX, NewSpeedY),
+                                GameState#partida{
+                                    palyer1Speed = {NewSpeedX, NewSpeedY},
+                                    player1Position = {NewPosX, NewPosY}
+                                };
+                            false when PlayerName == GameState#partida.player2 ->
+                                {NewSpeedX, NewSpeedY} = calculate_velocity(
+                                    element(1, GameState#partida.player2Speed),
+                                    element(2, GameState#partida.player2Speed),
+                                    AccX, AccY),
+                                {NewPosX, NewPosY} = calculate_position(
+                                    element(1, GameState#partida.player2Position),
+                                    element(2, GameState#partida.player2Position),
+                                    NewSpeedX, NewSpeedY),
+                                GameState#partida{
+                                    player2Speed = {NewSpeedX, NewSpeedY},
+                                    player2Position = {NewPosX, NewPosY}
+                                }
+                        end,
+                    partidas:update_partida(GameState#partida.player1, UpdatedGameState),
+                    UpdatedGameState;
+                {error, not_found} ->
+                    io:format("No partida found for player ~s~n", [PlayerName]),
+                    GameState
+            end;
+        ["MOVE", "DOWN"] -> {move, down};
+        ["MOVE", "LEFT"] -> {move, left};
+        ["MOVE", "RIGHT"] -> {move, right};
+        ["STOP", "UP"] -> {stop, up};
+        ["STOP", "DOWN"] -> {stop, down};
+        ["STOP", "LEFT"] -> {stop, left};
+        ["STOP", "RIGHT"] -> {stop, right};
         _ ->
             io:format("Unknown input: ~s~n", [Data]),
             GameState
     end.
+
+
+calculate_velocity(SpeedX, SpeedY, AccX, AccY) ->
+    NewSpeedX = speed_limit(SpeedX + AccX, -?MAX_SPEED, ?MAX_SPEED) * ?FRICTION,
+    NewSpeedY = speed_limit(SpeedY + AccY, -?MAX_SPEED, ?MAX_SPEED) * ?FRICTION,
+    {NewSpeedX, NewSpeedY}.
+
+calculate_position(X, Y, SpeedX, SpeedY) ->
+    {X + SpeedX, Y + SpeedY}.
+
+speed_limit(Vel, Max, Min) ->
+    if 
+        Vel > Max ->
+            Max;
+        Vel < Min ->
+            Min;
+        true ->
+            Vel
+    end.
+
+get_acceleration(left) ->
+    {-(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT), 0};
+get_acceleration(right) ->
+    {?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT, 0};
+get_acceleration(up) ->
+    {0, -(?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT)};
+get_acceleration(down) ->
+    {0, ?INITIAL_ACCELERATION + 1 * ?ACCELERATION_INCREMENT}.
+
 
 gestorPartidas(Username1) ->
     %io:format("GestorPartidas called for ~s~n", [Username1]),

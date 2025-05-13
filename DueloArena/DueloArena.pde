@@ -299,22 +299,22 @@ public class DueloArena extends PApplet {
                 case 'w':
                 case 'W':
                     moveUp = pressed;
-                    out.println(pressed ? "KEY_PRESS:UP" : "KEY_RELEASE:UP");
+                    out.println(pressed ? "MOVE:UP" : "STOP:UP");
                     break;
                 case 's':
                 case 'S':
                     moveDown = pressed;
-                    out.println(pressed ? "KEY_PRESS:DOWN" : "KEY_RELEASE:DOWN");
+                    out.println(pressed ? "MOVE:DOWN" : "STOP:DOWN");
                     break;
                 case 'a':
                 case 'A':
                     moveLeft = pressed;
-                    out.println(pressed ? "KEY_PRESS:LEFT" : "KEY_RELEASE:LEFT");
+                    out.println(pressed ? "MOVE:LEFT" : "STOP:LEFT");
                     break;
                 case 'd':
                 case 'D':
                     moveRight = pressed;
-                    out.println(pressed ? "KEY_PRESS:RIGHT" : "KEY_RELEASE:RIGHT");
+                    out.println(pressed ? "MOVE:RIGHT" : "STOP:RIGHT");
                     break;
                 case 'q':
                 case 'Q':
