@@ -1,6 +1,6 @@
 -module(game).
 -import(gen_tcp, [listen/2]).
--import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0]).
+-import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0, get_player_level/1, get_player_streak/1]).
 -import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0, remove_from_queue/1]).
 -import(partidas, [add_partida/1, get_partidas/0, update_partida/2, remove_partida/1, get_partida_by_player/1]).
 -include("partida.hrl").
@@ -229,13 +229,13 @@ ciclojogo(Player1, Sock1, Sock2) ->
             ciclojogo(Player1, Sock1, Sock2);
         {tcp_closed, Sock1} ->
             GameState = get_partida_by_player(Player1),
-            io:format("Player 1 (~s) disconnected~n", [GameState#partida.player1]);
+            io:format("Player 1 (~s) disconnected~n", [GameState#partida.player1]),
             end_game(GameState, 2); % Player 2 wins
         {tcp_closed, Sock2} ->
             GameState = get_partida_by_player(Player1),
             io:format("Player 2 (~s) disconnected~n", [GameState#partida.player2]),
-            ok
-            end_game(GameState, 1); % Player 1 wins
+            ok,
+            end_game(GameState, 1) % Player 1 wins
     end.
 
 handle_player_input(GameState, PlayerNum, Data) ->

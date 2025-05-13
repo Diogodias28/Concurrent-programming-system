@@ -2,7 +2,7 @@
 -export([
     create_account/2, login/2, close_account/2, logout/1,
     start/0, online/0, get_player_level/1, get_player_streak/1, 
-    update_account_status/4
+    update_account_stats/4
 ]).
 
 create_account(User, Pass) -> rpc({create_account, User, Pass}).
@@ -108,7 +108,7 @@ loop({Map, Queue}) ->
 
         {Pid, {update_account_stats, Username, Level, Streak, Add}} ->
             case maps:find(Username, Map) of
-                {ok, {P, S, L, S}} ->
+                {ok, {P, S, _, _}} ->
                     NewStreak = 
                         case Add of
                             1 -> 
@@ -133,10 +133,10 @@ loop({Map, Queue}) ->
                                     NewStreak == -(Level/2) -> 
                                         if 
                                             Level == 1 -> 1;
-                                            true -> Level - 1;
+                                            true -> Level - 1
                                         end;
                                     true -> Level
-                                end;
+                                end
                             end,
 
                     NewMap = maps:put(Username, {P, S, NewLevel, NewStreak}, Map),
@@ -146,7 +146,7 @@ loop({Map, Queue}) ->
                 _ ->
                     Pid ! invalid,
                     loop({Map, Queue})
-            end;
+            end
     end.
 
 logout_all_list(Accounts) ->
