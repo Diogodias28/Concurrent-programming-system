@@ -1,8 +1,13 @@
 -module(server).
 -export([
     create_account/2, login/2, close_account/2, logout/1,
+<<<<<<< Updated upstream
     start/0, online/0, get_player_level/1, get_player_streak/1, 
     update_account_stats/4
+=======
+    start/0, online/0, get_player_level/1, top_10/0, updateStats/3
+
+>>>>>>> Stashed changes
 ]).
 
 create_account(User, Pass) -> rpc({create_account, User, Pass}).
@@ -10,6 +15,9 @@ close_account(User, Pass) -> rpc({close_account, User, Pass}).
 login(User, Pass) -> rpc({login, User, Pass}).
 logout(User) -> rpc({logout, User}).
 online() -> rpc(online).
+get_player_level(User) -> rpc({get_player_level, User}).
+top_10() -> rpc(top_10).
+updateStats(User, NewLevel, NewStreak) -> rpc({updateStats, User, NewLevel, NewStreak}).
 
 rpc(Msg) ->
     ?MODULE ! {self(), Msg},
@@ -97,6 +105,7 @@ loop({Map, Queue}) ->
             end,
             loop({Map, Queue});
 
+<<<<<<< Updated upstream
         {Pid, {get_player_streak, Username}} ->
             case maps:find(Username, Map) of
                 {ok, {_, _, _, Streak}} ->
@@ -145,6 +154,33 @@ loop({Map, Queue}) ->
                     loop({NewMap, Queue});
                 _ ->
                     Pid ! invalid,
+=======
+        {Pid, top_10} ->
+            Top10 = lists:sort(
+                fun({_, {_, _, L1, Streak1}}, {_, {_, _, L2, Streak2}}) ->
+                    case L1 == L2 of
+                        true -> Streak1 > Streak2;
+                        false -> L1 > L2
+                    end
+                end,
+                maps:to_list(Map)
+            ),
+            Top10 = lists:sublist(Top10, 10),
+            save_top10(Top10),
+            Pid ! Top10,
+            loop({Map, Queue});
+
+        % Apenas para testar o top10
+        {Pid, {updateStats, User, NewLevel, NewStreak}} ->
+            case maps:find(User, Map) of
+                {ok, {Pass, Online, _, _}} ->
+                    NewMap = maps:put(User, {Pass, Online, NewLevel, NewStreak}, Map),
+                    save_accounts(NewMap),
+                    Pid ! ok,
+                    loop({NewMap, Queue});
+                _ -> 
+                    Pid ! {error, "User not found"},
+>>>>>>> Stashed changes
                     loop({Map, Queue})
             end
     end.
@@ -162,6 +198,7 @@ save_accounts(Map) ->
 logout_account() ->
     file:write_file("../DueloArena/Login.txt", "").
 
+<<<<<<< Updated upstream
 get_player_level(Username) ->
     rpc({get_player_level, Username}).
 
@@ -172,3 +209,7 @@ update_account_stats(Username, Level, Streak, Add) ->
     rpc({update_account_stats, Username, Level, Streak, Add}).
 
 
+=======
+save_top10(Top10List) ->
+    file:write_file("../DueloArena/Top10.txt", io_lib:format("~p.", [Top10List])).
+>>>>>>> Stashed changes
