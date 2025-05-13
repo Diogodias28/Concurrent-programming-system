@@ -1,0 +1,2 @@
+c(server), c(game), c(queuelist), c(partidas).
+game:start(1234).

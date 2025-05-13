@@ -321,7 +321,7 @@ handle_player_input(GameState, PlayerName, Data) ->
                         case PlayerName == NewGameState#partida.player1 of
                             true ->
                                 {NewAcc} = calculate_acceleration(
-                                    element(2, NewGameState#partida.player1acceleration),
+                                    element(1, NewGameState#partida.player1acceleration),
                                     -?ACCELERATION_INCREMENT
                                 ),
                                 NewGameState#partida{
@@ -329,7 +329,7 @@ handle_player_input(GameState, PlayerName, Data) ->
                                 };
                             false when PlayerName == NewGameState#partida.player2 ->
                                 {NewAcc} = calculate_acceleration(
-                                    element(2, NewGameState#partida.player2acceleration),
+                                    element(1, NewGameState#partida.player2acceleration),
                                     -?ACCELERATION_INCREMENT
                                 ),
                                 NewGameState#partida{
@@ -348,7 +348,7 @@ handle_player_input(GameState, PlayerName, Data) ->
                         case PlayerName == NewGameState#partida.player1 of
                             true ->
                                 {NewAcc} = calculate_acceleration(
-                                    element(2, NewGameState#partida.player1acceleration),
+                                    element(1, NewGameState#partida.player1acceleration),
                                     ?ACCELERATION_INCREMENT
                                 ),
                                 NewGameState#partida{
@@ -356,7 +356,7 @@ handle_player_input(GameState, PlayerName, Data) ->
                                 };
                             false when PlayerName == NewGameState#partida.player2 ->
                                 {NewAcc} = calculate_acceleration(
-                                    element(2, NewGameState#partida.player2acceleration),
+                                    element(1, NewGameState#partida.player2acceleration),
                                     ?ACCELERATION_INCREMENT
                                 ),
                                 NewGameState#partida{

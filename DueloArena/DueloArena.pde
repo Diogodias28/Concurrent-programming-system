@@ -277,59 +277,82 @@ public class DueloArena extends PApplet {
     }
 
     public void keyPressed() {
-        switch(currentState) {
-            case STATE_IP_INPUT:
-                handleIPInputKeyPress();
-                break;
-            case STATE_LOGIN:
-                handleLoginScreenKeyPress();
-                break;
-            case STATE_CREATE_ACCOUNT:
-                handleCreateAccountKeyPress();
-                break;
-            case STATE_GAME:
-                handleMovementKeyPress(true);
-                break;
+        if (currentState == STATE_GAME) {
+            switch (key) {
+                case 'w':
+                case 'W':
+                    moveUp = true;
+                    break;
+                case 's':
+                case 'S':
+                    moveDown = true;
+                    break;
+                case 'a':
+                case 'A':
+                    moveLeft = true;
+                    break;
+                case 'd':
+                case 'D':
+                    moveRight = true;
+                    break;
+            }
+            sendMovementState();
+        } else {
+            switch (currentState) {
+                case STATE_IP_INPUT:
+                    handleIPInputKeyPress();
+                    break;
+                case STATE_LOGIN:
+                    handleLoginScreenKeyPress();
+                    break;
+                case STATE_CREATE_ACCOUNT:
+                    handleCreateAccountKeyPress();
+                    break;
+            }
         }
     }
 
     public void keyReleased() {
         if (currentState == STATE_GAME) {
-            handleMovementKeyPress(false);
-        }
-    }
-    
-    void handleMovementKeyPress(boolean pressed) {
-        if (connected && out != null) {
-            switch(key) {
+            switch (key) {
                 case 'w':
                 case 'W':
-                    moveUp = pressed;
-                    out.println(pressed ? "MOVE:UP" : "STOP:UP");
+                    moveUp = false;
                     break;
                 case 's':
                 case 'S':
-                    moveDown = pressed;
-                    out.println(pressed ? "MOVE:DOWN" : "STOP:DOWN");
+                    moveDown = false;
                     break;
                 case 'a':
                 case 'A':
-                    moveLeft = pressed;
-                    out.println(pressed ? "MOVE:LEFT" : "STOP:LEFT");
+                    moveLeft = false;
                     break;
                 case 'd':
                 case 'D':
-                    moveRight = pressed;
-                    out.println(pressed ? "MOVE:RIGHT" : "STOP:RIGHT");
-                    break;
-                case 'q':
-                case 'Q':
-                    out.println("PLAYER1SCORE");
+                    moveRight = false;
                     break;
             }
+            sendMovementState();
         }
     }
-    
+
+    // New method to send the current movement state to the server
+    void sendMovementState() {
+        if (connected && out != null) {
+            if (moveUp) out.println("MOVE:UP");
+            else out.println("STOP:UP");
+
+            if (moveDown) out.println("MOVE:DOWN");
+            else out.println("STOP:DOWN");
+
+            if (moveLeft) out.println("MOVE:LEFT");
+            else out.println("STOP:LEFT");
+
+            if (moveRight) out.println("MOVE:RIGHT");
+            else out.println("STOP:RIGHT");
+        }
+    }
+
     void sendMovementCommand(String key, boolean pressed) {
         if (connected && out != null) {
             String command = pressed ? "KEY_PRESS:" : "KEY_RELEASE:";
