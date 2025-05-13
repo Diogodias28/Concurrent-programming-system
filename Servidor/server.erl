@@ -1,13 +1,8 @@
 -module(server).
 -export([
     create_account/2, login/2, close_account/2, logout/1,
-<<<<<<< Updated upstream
     start/0, online/0, get_player_level/1, get_player_streak/1, 
-    update_account_stats/4
-=======
-    start/0, online/0, get_player_level/1, top_10/0, updateStats/3
-
->>>>>>> Stashed changes
+    update_account_stats/4,top_10/0, updateStats/3
 ]).
 
 create_account(User, Pass) -> rpc({create_account, User, Pass}).
@@ -18,6 +13,11 @@ online() -> rpc(online).
 get_player_level(User) -> rpc({get_player_level, User}).
 top_10() -> rpc(top_10).
 updateStats(User, NewLevel, NewStreak) -> rpc({updateStats, User, NewLevel, NewStreak}).
+get_player_streak(Username) ->
+    rpc({get_player_streak, Username}).
+
+update_account_stats(Username, Level, Streak, Add) ->
+    rpc({update_account_stats, Username, Level, Streak, Add}).
 
 rpc(Msg) ->
     ?MODULE ! {self(), Msg},
@@ -105,7 +105,6 @@ loop({Map, Queue}) ->
             end,
             loop({Map, Queue});
 
-<<<<<<< Updated upstream
         {Pid, {get_player_streak, Username}} ->
             case maps:find(Username, Map) of
                 {ok, {_, _, _, Streak}} ->
@@ -154,7 +153,10 @@ loop({Map, Queue}) ->
                     loop({NewMap, Queue});
                 _ ->
                     Pid ! invalid,
-=======
+                    loop({Map, Queue})
+            end;
+
+
         {Pid, top_10} ->
             Top10 = lists:sort(
                 fun({_, {_, _, L1, Streak1}}, {_, {_, _, L2, Streak2}}) ->
@@ -180,7 +182,8 @@ loop({Map, Queue}) ->
                     loop({NewMap, Queue});
                 _ -> 
                     Pid ! {error, "User not found"},
->>>>>>> Stashed changes
+        
+                            
                     loop({Map, Queue})
             end
     end.
@@ -198,18 +201,5 @@ save_accounts(Map) ->
 logout_account() ->
     file:write_file("../DueloArena/Login.txt", "").
 
-<<<<<<< Updated upstream
-get_player_level(Username) ->
-    rpc({get_player_level, Username}).
-
-get_player_streak(Username) ->
-    rpc({get_player_streak, Username}).
-
-update_account_stats(Username, Level, Streak, Add) ->
-    rpc({update_account_stats, Username, Level, Streak, Add}).
-
-
-=======
 save_top10(Top10List) ->
     file:write_file("../DueloArena/Top10.txt", io_lib:format("~p.", [Top10List])).
->>>>>>> Stashed changes
