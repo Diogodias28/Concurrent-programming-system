@@ -25,7 +25,9 @@ public class DueloArena extends PApplet {
     final int STATE_CREATE_ACCOUNT = 3;
     final int STATE_QUEUE = 4;
     final int STATE_GAME = 5;
+    final int STATE_GAME_OVER = 6;
     int currentState = STATE_IP_INPUT;
+    int gameTime = 0;
     
     // Connection variables
     String serverIP = "";
@@ -68,6 +70,9 @@ public class DueloArena extends PApplet {
     boolean creatingConfirm = false;
     boolean createAccountError = false;
     String createAccountErrorMessage = "";
+
+    String winnerMessage = "";
+    Button gameOverOkButton;
     
     int player1Score = 0, player2Score = 0;
     
@@ -89,6 +94,7 @@ public class DueloArena extends PApplet {
         createAccountButton = new Button(width/2 - 75, 380, 150, 40, "Create Account", color(50, 50, 200), color(255));
         backToLoginButton = new Button(width/2 - 75, 400, 150, 40, "Back to Login", color(150, 150, 150), color(255));
         submitCreateButton = new Button(width/2 - 75, 360, 150, 40, "Create Account", color(0, 150, 0), color(255));
+        gameOverOkButton = new Button(width/2 - 75, height/2 + 50, 150, 40, "OK", color(0, 150, 0), color(255));
         
         // Initialize player positions
         resetGamePositions();
@@ -127,6 +133,9 @@ public class DueloArena extends PApplet {
             case STATE_GAME:
                 drawGameScreen();
                 break;
+            case STATE_GAME_OVER:
+            drawGameOverScreen();
+            break;
         }
     }
       
@@ -158,7 +167,14 @@ public class DueloArena extends PApplet {
                 resetGamePositions();
             }
         }
-            else if (message.startsWith("P1:")) {
+        else if (message.startsWith("GAME_OVER:")) {
+            winnerMessage = message.substring("GAME_OVER:".length()).trim();
+            out.println("MATCH_ENDED:" + loggedInUsername);
+            currentState = STATE_GAME_OVER;
+            inQueue = false;
+            queueButton.text = "Enter Queue";
+        }
+          else if (message.startsWith("P1:")) {
               // Split the message into components
               String[] components = message.split("\\|");
               
@@ -218,7 +234,7 @@ public class DueloArena extends PApplet {
               // Update time if needed
               if (gameState.containsKey("TIME")) {
                   try {
-                      //gameTime = Integer.parseInt(gameState.get("TIME"));
+                      gameTime = Integer.parseInt(gameState.get("TIME"));
                   } catch (NumberFormatException e) {
                       println("Error parsing time: " + e);
                   }
@@ -242,27 +258,57 @@ public class DueloArena extends PApplet {
         
     }
     
-    void drawGameGUI() {
-        fill(220);
-        rect(0, 0, width, GUI_HEIGHT);
+    void drawGameOverScreen() {
+        // Dark overlay
+        fill(0, 0, 0, 200);
+        rect(0, 0, width, height);
         
-        // Player info
-        fill(0);
-        textAlign(LEFT, CENTER);
-        textSize(16);
-        text("You: " + loggedInUsername, 20, GUI_HEIGHT/2);
-        text("Opponent: " + opponentUsername, width - 200, GUI_HEIGHT/2);
-        
-        // Score and timer
+        // Winner message
+        fill(255);
         textAlign(CENTER, CENTER);
-        textSize(24);
-        text(player1Score + " - " + player2Score, width/2, GUI_HEIGHT/2);
+        textSize(32);
+        text(winnerMessage, width/2, height/2 - 30);
         
-        // Separator line
-        stroke(150);
-        line(0, GUI_HEIGHT, width, GUI_HEIGHT);
-        noStroke();
+        // OK button
+        gameOverOkButton.display();
     }
+        
+      void drawGameGUI() {
+          fill(220);
+          rect(0, 0, width, GUI_HEIGHT);
+          
+          // Player info and scores
+          textAlign(LEFT, CENTER);
+          textSize(16);
+          
+          // Player 1 (you) info
+          fill(0);
+          text("You: " + loggedInUsername, 20, GUI_HEIGHT/3);
+          textSize(24);
+          text(str(player1Score), 20, 2*GUI_HEIGHT/3);
+          
+          // Player 2 (opponent) info
+          textAlign(RIGHT, CENTER);
+          textSize(16);
+          text("Opponent: " + opponentUsername, width - 20, GUI_HEIGHT/3);
+          textSize(24);
+          text(str(player2Score), width - 20, 2*GUI_HEIGHT/3);
+          
+          // Timer in center top
+          textAlign(CENTER, CENTER);
+          textSize(32);
+          
+          // Format time as MM:SS
+          int minutes = gameTime / 60;
+          int seconds = gameTime % 60;
+          String timeString = nf(minutes, 2) + ":" + nf(seconds, 2);
+          text(timeString, width/2, GUI_HEIGHT/2);
+          
+          // Separator line
+          stroke(150);
+          line(0, GUI_HEIGHT, width, GUI_HEIGHT);
+          noStroke();
+      }
     
     void drawArena() {
         fill(150);
@@ -532,6 +578,11 @@ public class DueloArena extends PApplet {
             case STATE_GAME:
                 // Your game mouse handling
                 break;
+            case STATE_GAME_OVER:
+              if (gameOverOkButton.isMouseOver()) {
+                  currentState = STATE_QUEUE;
+              }
+              break;
         }
     }
     

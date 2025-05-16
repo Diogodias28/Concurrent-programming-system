@@ -12,5 +12,5 @@
     player1Score,
     player2Score,
     projectiles,
-    time
+    startTime
 }).

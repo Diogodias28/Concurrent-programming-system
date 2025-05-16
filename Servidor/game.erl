@@ -208,7 +208,7 @@ comecarjogo(Sock1, Username1, Sock2, Username2) ->
         player1Score = 0,
         player2Score = 0,
         projectiles = [],
-        time = 120
+        startTime = erlang:monotonic_time(millisecond)
     },
     add_partida(NewPartida),
     io:format("Partida added: ~p~n", [NewPartida]),
@@ -219,7 +219,6 @@ comecarjogo(Sock1, Username1, Sock2, Username2) ->
 ciclojogo(Player, Sock) ->
     io:format("Entering game loop for ~s~n", [Player]),
     inet:setopts(Sock, [{active, once}]),
-    
     receive
         {tcp, Sock, Data} ->
             io:format("Received input from ~s: ~s~n", [Player, Data]),
@@ -231,8 +230,15 @@ ciclojogo(Player, Sock) ->
                     update_partida(GameState#partida.player1, UpdatedGameState),
                     ciclojogo(Player, Sock);
                 {error, not_found} ->
-                    io:format("No partida found for player ~s~n", [Player]),
-                    ok
+                    % Se o comando for MATCH_ENDED, retorna para a fila
+                    case string:split(string:trim(Data), ":", all) of
+                        ["MATCH_ENDED", _Username] ->
+                            io:format("No partida found, but received MATCH_ENDED. Returning ~s to queue handler~n", [Player]),
+                            queue_handler(Sock);
+                        _ ->
+                            io:format("No partida found for player ~s~n", [Player]),
+                            ok
+                    end
             end;
         {tcp_closed, Sock} ->
             case get_partida_by_player(Player) of
@@ -385,6 +391,9 @@ handle_player_input(GameState, PlayerName, Data) ->
         ["MATCH_FOUND", Username] ->
             io:format("Match found for player ~s~n", [Username]),
             GameState;
+        ["MATCH_ENDED", Username] ->
+            io:format("Match ended for player ~s~n", [Username]),
+            {match_ended, Username};
         _ ->
             io:format("Unknown input: ~s~n", [Data]),
             GameState
@@ -446,6 +455,12 @@ calculate_playerPosition(Partida) ->
     },
     UpdatedPartida.
 
+getWinnder(Partida) ->
+    case Partida#partida.player1Score > Partida#partida.player2Score of
+        true -> 1;
+        false -> 2
+    end.
+
 gestorPartidas(Username1) ->
     %io:format("GestorPartidas called for ~s~n", [Username1]),
     Partida = get_partida_by_player(Username1),
@@ -454,23 +469,37 @@ gestorPartidas(Username1) ->
             %io:format("Partida found for ~s: ~p~n", [Username1, P]),
             % Debug print before sending partida
             %io:format("Sending partida to client: ~p~n", [P]),
-            UpdatedPartida1 = calculate_playerPosition(P),
+            StartTime = P#partida.startTime,
+            CurrentTime = erlang:monotonic_time(millisecond),
+            Elapsed = CurrentTime - StartTime,
+            TimeLeft = max(0, 120 - (Elapsed div 1000)), % 120 seconds game
 
-            UpdatedPartida2 = check_collisions(UpdatedPartida1),
+            % Check if game is over
+            case TimeLeft of
+                0 ->
+                    io:format("Game over for ~s~n", [Username1]),
+                    end_game(P, getWinnder(P)),
+                    ok;
+                _ ->
+                    UpdatedPartida = calculate_playerPosition(P),
 
-            %io:format("Updated partida: ~p~n", [UpdatedPartida]),
-            update_partida(Username1, UpdatedPartida2),
+                    UpdatedPartida2 = check_collisions(UpdatedPartida),
 
-            %check collision
-            
 
-            %atualizar projeteis
-            %ver se spawna modificador
-            %check if game is over
+                    %io:format("Updated partida: ~p~n", [UpdatedPartida]),
+                    update_partida(Username1, UpdatedPartida2),
+                    %check collision
+                    
 
-            send_partida(UpdatedPartida2),
-            erlang:send_after(16, self(), {continue, Username1}),
-            wait_for_continue();
+                    %atualizar projeteis
+                    %ver se spawna modificador
+                    %check if game is over
+
+                    send_partida(UpdatedPartida2, TimeLeft),
+                    erlang:send_after(16, self(), {continue, Username1}),
+                    wait_for_continue()
+            end;
+
         {error, not_found} ->
             io:format("No partida found for ~s~n", [Username1])
     end.
@@ -481,8 +510,7 @@ wait_for_continue() ->
             gestorPartidas(Username1)
     end.
 
-send_partida(Partida) ->
-    % Convert the partida record to a custom delimited string
+send_partida(Partida, TimeLeft) ->
     CustomData = io_lib:format("P1:~s|P2:~s|P1_POS:~w|P2_POS:~w|P1_SCORE:~p|P2_SCORE:~p|TIME:~p",
                                [Partida#partida.player1,
                                 Partida#partida.player2,
@@ -490,10 +518,7 @@ send_partida(Partida) ->
                                 Partida#partida.player2Position,
                                 Partida#partida.player1Score,
                                 Partida#partida.player2Score,
-                                Partida#partida.time]),
-
-    %io:format("Sending partida data: ~s~n", [CustomData]),
-    % Send the custom delimited data to both players
+                                TimeLeft]),
     gen_tcp:send(Partida#partida.sock1, CustomData ++ "\n"),
     gen_tcp:send(Partida#partida.sock2, CustomData ++ "\n").
 
@@ -539,7 +564,7 @@ check_collisions(Partida) ->
                     {ProjX, ProjY, Owner} = Proj,
                     % Colisão com borda
                     if
-                        ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaW - Wall - ?PROJECTILE_RADIUS; ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaH - Wall - ?PROJECTILE_RADIUS ->
+                        ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaW - Wall - ?PROJECTILE_RADIUS; ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaH - Wall - ?PLAYER_RADIUS ->
                             AccPartida#partida{projectiles = lists:delete(Proj, AccPartida#partida.projectiles)};
                         true ->
                             % Colisão com jogadores
@@ -581,15 +606,28 @@ end_game(GameState, Winner) ->
             _ -> {Player1, Player2}
         end,
 
-    WinnerLevel = get_player_level(WinnerUsername),
-    LoserLevel = get_player_level(LoserUsername),
-    WinnerStrak = server:get_player_streak(WinnerUsername),
-    LoserStreak = server:get_player_streak(LoserUsername),
+    % Extract levels and streaks safely
+    WinnerLevel = case get_player_level(WinnerUsername) of
+        {ok, Level1} -> Level1;
+        _ -> 1
+    end,
+    LoserLevel = case get_player_level(LoserUsername) of
+        {ok, Level2} -> Level2;
+        _ -> 1
+    end,
+    WinnerStreak = case server:get_player_streak(WinnerUsername) of
+        {ok, WinnerS} -> WinnerS;
+        _ -> 0
+    end,
+    LoserStreak = case server:get_player_streak(LoserUsername) of
+        {ok, LoserS} -> LoserS;
+        _ -> 0
+    end,
 
-    server:update_account_stats(WinnerUsername, WinnerLevel, WinnerStrak, 1),
+    server:update_account_stats(WinnerUsername, WinnerLevel, WinnerStreak, 1),
     server:update_account_stats(LoserUsername, LoserLevel, LoserStreak, -1), 
 
-    gen_tcp:send(GameState#partida.sock1, io_lib:format("GAME_OVER: Winner - ~s\n", [WinnerUsername])),
-    gen_tcp:send(GameState#partida.sock2, io_lib:format("GAME_OVER: Winner - ~s\n", [WinnerUsername])),
+    gen_tcp:send(GameState#partida.sock1, io_lib:format("GAME_OVER:Winner - ~s\n", [WinnerUsername])),
+    gen_tcp:send(GameState#partida.sock2, io_lib:format("GAME_OVER:Winner - ~s\n", [WinnerUsername])),
     
     remove_partida(Player1).
