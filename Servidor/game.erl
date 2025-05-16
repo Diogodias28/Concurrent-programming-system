@@ -15,6 +15,8 @@
 -define(ARENA_HEIGHT, 600).
 -define(WALL_THICKNESS, 10).
 -define(ARENA_WIDTH, 800).
+-define(PLAYER_RADIUS, 15).
+-define(PROJECTILE_RADIUS, 5).
 
 start(Port) ->
     io:format("Starting game server on port ~p~n", [Port]),
@@ -452,16 +454,21 @@ gestorPartidas(Username1) ->
             %io:format("Partida found for ~s: ~p~n", [Username1, P]),
             % Debug print before sending partida
             %io:format("Sending partida to client: ~p~n", [P]),
-            UpdatedPartida = calculate_playerPosition(P),
+            UpdatedPartida1 = calculate_playerPosition(P),
+
+            UpdatedPartida2 = check_collisions(UpdatedPartida1),
+
             %io:format("Updated partida: ~p~n", [UpdatedPartida]),
-            update_partida(Username1, UpdatedPartida),
+            update_partida(Username1, UpdatedPartida2),
 
             %check collision
+            
+
             %atualizar projeteis
             %ver se spawna modificador
             %check if game is over
 
-            send_partida(UpdatedPartida),
+            send_partida(UpdatedPartida2),
             erlang:send_after(16, self(), {continue, Username1}),
             wait_for_continue();
         {error, not_found} ->
@@ -489,6 +496,78 @@ send_partida(Partida) ->
     % Send the custom delimited data to both players
     gen_tcp:send(Partida#partida.sock1, CustomData ++ "\n"),
     gen_tcp:send(Partida#partida.sock2, CustomData ++ "\n").
+
+check_collisions(Partida) ->
+    % Constantes
+    {P1X, P1Y} = Partida#partida.player1Position,
+    {P2X, P2Y} = Partida#partida.player2Position,
+    Projectiles = Partida#partida.projectiles,
+    ArenaW = ?ARENA_WIDTH,
+    ArenaH = ?ARENA_HEIGHT,
+    Wall = ?WALL_THICKNESS,
+
+    % Verificar colisão dos jogadores com as bordas
+    case true of
+        _ when P1X < Wall + ?PLAYER_RADIUS; P1X > ArenaW - Wall - ?PLAYER_RADIUS; P1Y < Wall + ?PLAYER_RADIUS; P1Y > ArenaH - Wall - ?PLAYER_RADIUS ->
+            % Reset player1, player2 ganha 2 pontos
+            Partida#partida{
+                player1Position = {100,300},
+                player2Position = {700,300},
+                player1Speed = {0, 0},
+                player2Speed = {0, 0},
+                player1acceleration = {0, 0},
+                player2acceleration = {0, 0},
+                player2Score = Partida#partida.player2Score + 2,
+                projectiles = []
+            };
+        _ when P2X < Wall + ?PLAYER_RADIUS; P2X > ArenaW - Wall - ?PLAYER_RADIUS; P2Y < Wall + ?PLAYER_RADIUS; P2Y > ArenaH - Wall - ?PLAYER_RADIUS ->
+            % Reset player2, player1 ganha 2 pontos
+            Partida#partida{
+                player1Position = {100,300},
+                player2Position = {700,300},
+                player1Speed = {0, 0},
+                player2Speed = {0, 0},
+                player1acceleration = {0, 0},
+                player2acceleration = {0, 0},
+                player1Score = Partida#partida.player1Score + 2,
+                projectiles = []
+            };
+        true ->
+            % Se não houve reset, processa colisão de projéteis
+            lists:foldl(
+                fun(Proj, AccPartida) ->
+                    {ProjX, ProjY, Owner} = Proj,
+                    % Colisão com borda
+                    if
+                        ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaW - Wall - ?PROJECTILE_RADIUS; ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaH - Wall - ?PROJECTILE_RADIUS ->
+                            AccPartida#partida{projectiles = lists:delete(Proj, AccPartida#partida.projectiles)};
+                        true ->
+                            % Colisão com jogadores
+                            DistP1 = distance({ProjX, ProjY}, AccPartida#partida.player1Position),
+                            DistP2 = distance({ProjX, ProjY}, AccPartida#partida.player2Position),
+                            case true of
+                                _ when Owner =/= AccPartida#partida.player1, DistP1 < (?PLAYER_RADIUS + ?PROJECTILE_RADIUS) ->
+                                    AccPartida#partida{
+                                        player2Score = AccPartida#partida.player2Score + 1,
+                                        projectiles = lists:delete(Proj, AccPartida#partida.projectiles)
+                                    };
+                                _ when Owner =/= AccPartida#partida.player2, DistP2 < (?PLAYER_RADIUS + ?PROJECTILE_RADIUS) ->
+                                    AccPartida#partida{
+                                        player1Score = AccPartida#partida.player1Score + 1,
+                                        projectiles = lists:delete(Proj, AccPartida#partida.projectiles)
+                                    };
+                                _ ->
+                                    AccPartida
+                            end
+                    end
+                end,
+                Partida,
+                Projectiles
+            )
+    end.
+
+distance({X1, Y1}, {X2, Y2}) ->
+    math:sqrt(math:pow(X1 - X2, 2) + math:pow(Y1 - Y2, 2)).
 
 end_game(GameState, Winner) ->
     Player1 = GameState#partida.player1,

@@ -1,5 +1,5 @@
 [{"Diogo",{"password10",false,5,3}},
- {"Lipe",{"Gamer",false,1,0}},
+ {"Lipe",{"Gamer",false,5,1}},
  {"Loren",{"NotGamer",false,1,0}},
  {"hugo",{"123456",false,3,1}},
  {"ola",{"ola1234",false,2,1}},
