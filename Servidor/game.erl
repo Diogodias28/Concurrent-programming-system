@@ -237,6 +237,8 @@ comecarjogo(Sock1, Username1, Sock2, Username2) ->
         sock2 = Sock2,
         player1Position = {100, 300},
         player2Position = {700, 300},
+        player1LastShot = erlang:monotonic_time(millisecond) - ?SHOT_COOLDOWN,
+        player2LastShot = erlang:monotonic_time(millisecond) - ?SHOT_COOLDOWN,
         player1Score = 0,
         player2Score = 0,
         projectiles = [],
@@ -695,11 +697,10 @@ end_game(GameState, Winner) ->
     Player1 = GameState#partida.player1,
     Player2 = GameState#partida.player2,
     io:format("Game ended. Winner: ~p~n", [Winner]),
-%draw == 0
     if 
         Winner == 0 ->
-            gen_tcp:send(GameState#partida.sock1, io_lib:format("GAME_DRAW\n")),
-            gen_tcp:send(GameState#partida.sock2, io_lib:format("GAME_DRAW\n")),
+            gen_tcp:send(GameState#partida.sock1, "GAME_OVER: Winner - DRAW\n"),
+            gen_tcp:send(GameState#partida.sock2, "GAME_OVER: Winner - DRAW\n"),
             remove_partida(Player1);
         true ->
             {WinnerUsername, LoserUsername} = 
@@ -709,19 +710,31 @@ end_game(GameState, Winner) ->
                     _ -> {Player1, Player2}
                 end,
 
-            WinnerLevel = get_player_level(WinnerUsername),
-            LoserLevel = get_player_level(LoserUsername),
-            WinnerStrak = server:get_player_streak(WinnerUsername),
-            LoserStreak = server:get_player_streak(LoserUsername),
+            WinnerLevel = case get_player_level(WinnerUsername) of
+                {ok, WL} -> WL;
+                _ -> 1
+            end,
+            LoserLevel = case get_player_level(LoserUsername) of
+                {ok, LL} -> LL;
+                _ -> 1
+            end,
+            WinnerStreak = case server:get_player_streak(WinnerUsername) of
+                {ok, WS} -> WS;
+                _ -> 0
+            end,
+            LoserStreak = case server:get_player_streak(LoserUsername) of
+                {ok, LS} -> LS;
+                _ -> 0
+            end,
 
-            server:update_account_stats(WinnerUsername, WinnerLevel, WinnerStrak, 1),
+            server:update_account_stats(WinnerUsername, WinnerLevel, WinnerStreak, 1),
             server:update_account_stats(LoserUsername, LoserLevel, LoserStreak, -1), 
 
             gen_tcp:send(GameState#partida.sock1, io_lib:format("GAME_OVER: Winner - ~s\n", [WinnerUsername])),
             gen_tcp:send(GameState#partida.sock2, io_lib:format("GAME_OVER: Winner - ~s\n", [WinnerUsername])),
             
             remove_partida(Player1)
-        end.
+    end.
 
 update_projectiles(Projectiles) ->
     lists:filtermap(

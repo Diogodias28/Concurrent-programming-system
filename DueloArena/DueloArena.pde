@@ -34,7 +34,7 @@ public class DueloArena extends PApplet {
     
     // Connection variables
     String serverIP = "";
-    String inputIP = "192.168.0.107";
+    String inputIP = "192.168.1.112";
     int serverPort = 1234;
     String inputPort = "1234";
     Socket socket;
@@ -850,7 +850,7 @@ public class DueloArena extends PApplet {
                                         vx, 
                                         vy));
 
-            projectiles.add(new Object[]{(float) id, loggedInUsername, centerX, centerY, vx, vy});
+            //projectiles.add(new Object[]{(float) id, loggedInUsername, centerX, centerY, vx, vy});
 
         }
     }
