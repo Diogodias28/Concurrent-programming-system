@@ -8,8 +8,9 @@
 
 
 -define(FRICTION, 0.98).
+-define(ACCEL_FRICTION, 0.95).
 -define(INITIAL_ACCELERATION, 0.01).
--define(ACCELERATION_INCREMENT, 0.01).
+-define(ACCELERATION_INCREMENT, 0.02).
 -define(MAX_SPEED, 6).
 -define(GUI_HEIGHT, 70).
 -define(ARENA_HEIGHT, 600).
@@ -50,8 +51,7 @@ acceptor(LSock) ->
     spawn(fun() -> acceptor(LSock) end),
     case authenticator(Sock) of
         {ok, Username} ->
-            io:format("Authentication successful for ~s from ~p:~p~n", [Username, IP, Port]),
-            queue_handler(Sock);
+            io:format("Authentication successful for ~s from ~p:~p~n", [Username, IP, Port]);
         {error, Reason} ->
             io:format("Connection closed (~p) from ~p:~p~n", [Reason, IP, Port]),
             gen_tcp:close(Sock)
@@ -86,6 +86,17 @@ handle_login(Sock, IP, Username, Password) ->
         ok ->
             io:format("Login successful for ~s from ~p~n", [Username, IP]),
             gen_tcp:send(Sock, "LOGIN_SUCCESS\n"),
+            % Send player stats after login
+            Level = case server:get_player_level(Username) of
+                {ok, L} -> L;
+                _ -> 1
+            end,
+            Streak = case server:get_player_streak(Username) of
+                {ok, S} -> S;
+                _ -> 0
+            end,
+            gen_tcp:send(Sock, io_lib:format("STATS:~p,~p\n", [Level, Streak])),
+            queue_handler(Sock, Username),
             {ok, Username};
         invalid ->
             io:format("Failed login for ~s from ~p~n", [Username, IP]),
@@ -103,7 +114,7 @@ handle_create_account(Sock, IP, Username, Password) ->
                 ok ->
                     io:format("Auto-login successful for ~s from ~p~n", [Username, IP]),
                     gen_tcp:send(Sock, "LOGIN_SUCCESS\n"),
-                    queue_handler(Sock),
+                    queue_handler(Sock, Username),
                     {ok, Username};
                 invalid ->
                     io:format("Auto-login failed for ~s from ~p~n", [Username, IP]),
@@ -128,7 +139,7 @@ parse_auth_input(Data) ->
             {error, "Invalid authentication command"}
     end.
 
-queue_handler(Sock) ->
+queue_handler(Sock, Player) ->
     inet:setopts(Sock, [{active, once}]),
     receive
         {tcp, Sock, Data} ->
@@ -147,31 +158,47 @@ queue_handler(Sock) ->
                                     io:format("Socket ~p queued for user ~s~n", [Sock, Username]),
                                     gen_tcp:send(Sock, "QUEUED\n"),
                                     io:format("current queue: ~p~n", [get_queue()]),
-                                    queue_handler(Sock);
+                                    queue_handler(Sock, Player);
                                 already_queued ->
                                     gen_tcp:send(Sock, "ALREADY_IN_QUEUE\n"),
-                                    queue_handler(Sock)
+                                    queue_handler(Sock, Player)
                             end;
                         {error, _} ->
                             gen_tcp:send(Sock, "USER_NOT_FOUND\n"),
-                            queue_handler(Sock)
+                            queue_handler(Sock, Player)
                     end;
                 {remove_from_queue, Username} ->
                     io:format("Removing user ~s from queue~n", [Username]),
                     queuelist:remove_from_queue(Username),
                     gen_tcp:send(Sock, "UNQUEUED\n"),
                     io:format("current queue: ~p~n", [get_queue()]),
-                    queue_handler(Sock);
+                    queue_handler(Sock, Player);
                 {close_function, Username} ->
                     io:format("Closing function for user~n"),
                     ciclojogo(Username, Sock);
+                {logout, Username} ->
+                    io:format("Logging out user ~s~n", [Username]),
+                    server:logout(Username),
+                    gen_tcp:send(Sock, "LOGOUT_SUCCESS\n"),
+                    authenticator(Sock);
+                {close_account, Username, Password} ->
+                    io:format("Closing account for user ~s~n", [Username]),
+                    case server:close_account(Username, Password) of
+                        ok ->
+                            gen_tcp:send(Sock, "ACCOUNT_CLOSED\n"),
+                            authenticator(Sock);
+                        error ->
+                            gen_tcp:send(Sock, "ACCOUNT_CLOSURE_FAILED\n"),
+                            queue_handler(Sock, Player)
+                    end;
                 {error, _} ->
                     io:format("Invalid queue command: ~s~n", [Data]),
                     gen_tcp:send(Sock, "INVALID_QUEUE_COMMAND\n"),
-                    queue_handler(Sock)
+                    queue_handler(Sock, Player)
             end;
         {tcp_closed, Sock} ->
             io:format("Socket closed.~n"),
+            server:logout(Player),
             ok;
         {tcp_error, Sock, Reason} ->
             io:format("Socket error: ~p~n", [Reason]),
@@ -188,6 +215,10 @@ parse_queue_input(Data) ->
             {remove_from_queue, string:trim(Username)};
         ["MATCH_FOUND", Username] ->
             {close_function, Username};
+        ["LOGOUT", Username] ->
+            {logout, string:trim(Username)};
+        ["CLOSE_ACCOUNT", Username, Password] ->
+            {close_account, string:trim(Username), string:trim(Password)};
         _ ->
             {error, "Invalid queue command"}
     end.
@@ -235,7 +266,7 @@ ciclojogo(Player, Sock) ->
                     case string:split(string:trim(Data), ":", all) of
                         ["MATCH_ENDED", _Username] ->
                             io:format("No partida found, but received MATCH_ENDED. Returning ~s to queue handler~n", [Player]),
-                            queue_handler(Sock);
+                            queue_handler(Sock, Player);
                         _ ->
                             io:format("No partida found for player ~s~n", [Player]),
                             ok
@@ -244,12 +275,18 @@ ciclojogo(Player, Sock) ->
         {tcp_closed, Sock} ->
             case get_partida_by_player(Player) of
                 {ok, GameState} ->
-                    io:format("Player (~s) disconnected~n", [Player]);
-                    %OtherPlayer = case Player of
-                    %    GameState#partida.player1 -> GameState#partida.player2;
-                    %    GameState#partida.player2 -> GameState#partida.player1
-                    %end,
-                    %end_game(GameState, OtherPlayer);
+                    io:format("Player (~s) disconnected~n", [Player]),
+                    OtherPlayer = case Player of
+                        P when P =:= GameState#partida.player1 -> GameState#partida.player2;
+                        P when P =:= GameState#partida.player2 -> GameState#partida.player1
+                    end,
+                    io:format("otherPlayer: ~s~n", [OtherPlayer]),
+                    server:logout(Player),
+                    WinnerNum = case OtherPlayer of
+                        _ when OtherPlayer =:= GameState#partida.player1 -> 1;
+                        _ when OtherPlayer =:= GameState#partida.player2 -> 2
+                    end,
+                    end_game(GameState, WinnerNum);
                 {error, not_found} ->
                     io:format("No partida found for player ~s after disconnection~n", [Player]),
                     ok
@@ -489,10 +526,10 @@ calculate_playerPosition(Partida) ->
     {NewPlayer2PosX, NewPlayer2PosY} = calculate_position(Player2X, Player2Y, NewPlayer2SpeedX, NewPlayer2SpeedY),
 
     % Apply friction to acceleration
-    NewPlayer1AccX = Player1AccX * ?FRICTION,
-    NewPlayer1AccY = Player1AccY * ?FRICTION,
-    NewPlayer2AccX = Player2AccX * ?FRICTION,
-    NewPlayer2AccY = Player2AccY * ?FRICTION,
+    NewPlayer1AccX = Player1AccX * ?ACCEL_FRICTION,
+    NewPlayer1AccY = Player1AccY * ?ACCEL_FRICTION,
+    NewPlayer2AccX = Player2AccX * ?ACCEL_FRICTION,
+    NewPlayer2AccY = Player2AccY * ?ACCEL_FRICTION,
 
     NewProjectiles = update_projectiles(Partida#partida.projectiles),
 
@@ -508,7 +545,7 @@ calculate_playerPosition(Partida) ->
     },
     UpdatedPartida.
 
-getWinnder(Partida) ->
+getWinner(Partida) ->
     case Partida#partida.player1Score > Partida#partida.player2Score of
         true -> 1;
         false -> 
@@ -535,7 +572,7 @@ gestorPartidas(Username1) ->
             case TimeLeft of
                 0 ->
                     io:format("Game over for ~s~n", [Username1]),
-                    end_game(P, getWinnder(P)),
+                    end_game(P, getWinner(P)),
                     ok;
                 _ ->
                     UpdatedPartida = calculate_playerPosition(P),
