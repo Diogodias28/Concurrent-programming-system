@@ -11,6 +11,8 @@
     player2acceleration = {0,0},
     player1Score,
     player2Score,
+    player1LastShot = 0,
+    player2LastShot = 0,
     projectiles = [],
     startTime
 }).

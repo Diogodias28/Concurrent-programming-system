@@ -17,6 +17,7 @@
 -define(ARENA_WIDTH, 800).
 -define(PLAYER_RADIUS, 15).
 -define(PROJECTILE_RADIUS, 5).
+-define(SHOT_COOLDOWN, 5000).
 
 start(Port) ->
     io:format("Starting game server on port ~p~n", [Port]),
@@ -397,21 +398,48 @@ handle_player_input(GameState, PlayerName, Data) ->
         ["LAUNCH_PROJ", IdStr, Owner, XStr, YStr, VXStr, VYStr] ->
             case partidas:get_partida_by_player(PlayerName) of
                 {ok, NewGameState} ->
-                    Id = list_to_integer(IdStr),
-                    X = list_to_float(XStr),
-                    Y = list_to_float(YStr),
-                    VX = list_to_float(VXStr),
-                    VY = list_to_float(VYStr),
-                    NewProjectile = #projectile{
-                        id = Id,
-                        owner = Owner,
-                        position = {X, Y},
-                        velocity = {VX, VY}
-                    },
-                    UpdatedProjectiles = [NewProjectile | NewGameState#partida.projectiles],
-                    UpdatedGameState = NewGameState#partida{projectiles = UpdatedProjectiles},
-                    % Enviar confirmação para os clientes
-                    UpdatedGameState;
+                    Now = erlang:monotonic_time(millisecond),
+                    Player1Name = NewGameState#partida.player1,
+                    Player2Name = NewGameState#partida.player2,
+                    {CanShoot, TempGameState} =
+                        if 
+                            PlayerName == Player1Name ->
+                                Last = NewGameState#partida.player1LastShot,
+                                if
+                                    Now - Last >= ?SHOT_COOLDOWN ->
+                                        {true, NewGameState#partida{player1LastShot = Now}};
+                                    true ->
+                                        {false, NewGameState}
+                                end;
+                            PlayerName == Player2Name ->
+                                Last = NewGameState#partida.player2LastShot,
+                                if
+                                    Now - Last >= ?SHOT_COOLDOWN ->
+                                        {true, NewGameState#partida{player2LastShot = Now}};
+                                    true ->
+                                        {false, NewGameState}
+                                end
+                        end,
+                case CanShoot of
+                    true ->
+                        Id = list_to_integer(IdStr),
+                        X = list_to_float(XStr),
+                        Y = list_to_float(YStr),
+                        VX = list_to_float(VXStr),
+                        VY = list_to_float(VYStr),
+                        NewProjectile = #projectile{
+                            id = Id,
+                            owner = Owner,
+                            position = {X, Y},
+                            velocity = {VX, VY}
+                        },
+                        UpdatedProjectiles = [NewProjectile | TempGameState#partida.projectiles],
+                        UpdatedGameState = TempGameState#partida{projectiles = UpdatedProjectiles},
+                        UpdatedGameState;
+                    false ->
+                        io:format("Player ~s tried to shot before the cooldown ~n", [PlayerName]),
+                        NewGameState
+                end;
                 {error, not_found} ->
                     io:format("No partida found for player ~s~n", [PlayerName]),
                     GameState
@@ -590,10 +618,13 @@ check_collisions(Partida) ->
             % Se não houve reset, processa colisão de projéteis
             lists:foldl(
                 fun(Proj, AccPartida) ->
-                    {ProjX, ProjY, Owner} = Proj,
+                    ProjX = element(1, Proj#projectile.position),
+                    ProjY = element(2, Proj#projectile.position),
+                    Owner = Proj#projectile.owner,
+
                     % Colisão com borda
                     if
-                        ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaW - Wall - ?PROJECTILE_RADIUS; ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaH - Wall - ?PLAYER_RADIUS ->
+                        ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaW - Wall - ?PROJECTILE_RADIUS; ProjY < Wall + ?PROJECTILE_RADIUS; ProjY > ArenaH - Wall - ?PLAYER_RADIUS ->
                             AccPartida#partida{projectiles = lists:delete(Proj, AccPartida#partida.projectiles)};
                         true ->
                             % Colisão com jogadores
