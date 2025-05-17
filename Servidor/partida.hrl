@@ -11,6 +11,13 @@
     player2acceleration = {0,0},
     player1Score,
     player2Score,
-    projectiles,
+    projectiles = [],
     startTime
+}).
+
+-record(projectile, {
+    id,
+    owner,
+    position,
+    velocity
 }).

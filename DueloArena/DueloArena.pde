@@ -17,6 +17,7 @@ public class DueloArena extends PApplet {
     final int PLAYER_SIZE = 30;
     final float MAX_SPEED = 6;
     final float FRICTION = 0.98f;
+    final int PROJ_SIZE = 10;
     
     // Game states
     final int STATE_IP_INPUT = 0;
@@ -31,7 +32,7 @@ public class DueloArena extends PApplet {
     
     // Connection variables
     String serverIP = "";
-    String inputIP = "192.168.1.112";
+    String inputIP = "192.168.0.107";
     int serverPort = 1234;
     String inputPort = "1234";
     Socket socket;
@@ -75,6 +76,7 @@ public class DueloArena extends PApplet {
     Button gameOverOkButton;
     
     int player1Score = 0, player2Score = 0;
+    int nextProjectileId = 0;
     
     // UI elements
     Button queueButton;
@@ -82,6 +84,9 @@ public class DueloArena extends PApplet {
     Button createAccountButton;
     Button backToLoginButton;
     Button submitCreateButton;
+
+    // Object[]: [id(float), owner(String), x(float), y(float), vx(float), vy(float)]
+    ArrayList<Object[]> projectiles = new ArrayList<>();
     
     public void settings() {
         size(ARENA_WIDTH, ARENA_HEIGHT + GUI_HEIGHT);
@@ -174,72 +179,92 @@ public class DueloArena extends PApplet {
             inQueue = false;
             queueButton.text = "Enter Queue";
         }
-          else if (message.startsWith("P1:")) {
-              // Split the message into components
-              String[] components = message.split("\\|");
-              
-              // Create a map to store the values
-              HashMap<String, String> gameState = new HashMap<String, String>();
-              
-              // Parse each component
-              for (String component : components) {
-                  String[] keyValue = component.split(":", 2); // Split on first colon only
-                  if (keyValue.length == 2) {
-                      gameState.put(keyValue[0], keyValue[1]);
-                  }
-              }
-              
-              // Update positions based on which player we are
-              if (gameState.containsKey("P1_POS") && gameState.containsKey("P2_POS")) {
-                  try {
-                      // Parse positions (format "{x,y}")
-                      String p1PosStr = gameState.get("P1_POS").replace("{", "").replace("}", "");
-                      String p2PosStr = gameState.get("P2_POS").replace("{", "").replace("}", "");
-                      
-                      String[] p1Pos = p1PosStr.split(",");
-                      String[] p2Pos = p2PosStr.split(",");
-                      
-                      float p1X = Float.parseFloat(p1Pos[0].trim());
-                      float p1Y = Float.parseFloat(p1Pos[1].trim());
-                      float p2X = Float.parseFloat(p2Pos[0].trim());
-                      float p2Y = Float.parseFloat(p2Pos[1].trim());
-                      
-                      if (isPlayer1) {
-                          playerX = p1X;
-                          playerY = p1Y + GUI_HEIGHT; // Add GUI offset
-                          opponentX = p2X;
-                          opponentY = p2Y + GUI_HEIGHT; // Add GUI offset
-                      } else {
-                          playerX = p2X;
-                          playerY = p2Y + GUI_HEIGHT; // Add GUI offset
-                          opponentX = p1X;
-                          opponentY = p1Y + GUI_HEIGHT; // Add GUI offset
-                      }
-                  } catch (Exception e) {
-                      println("Error parsing positions: " + e);
-                      e.printStackTrace();
-                  }
-              }
-              
-              // Update scores
-              if (gameState.containsKey("P1_SCORE") && gameState.containsKey("P2_SCORE")) {
-                  try {
-                      player1Score = Integer.parseInt(gameState.get("P1_SCORE"));
-                      player2Score = Integer.parseInt(gameState.get("P2_SCORE"));
-                  } catch (NumberFormatException e) {
-                      println("Error parsing scores: " + e);
-                  }
-              }
-              
-              // Update time if needed
-              if (gameState.containsKey("TIME")) {
-                  try {
-                      gameTime = Integer.parseInt(gameState.get("TIME"));
-                  } catch (NumberFormatException e) {
-                      println("Error parsing time: " + e);
-                  }
-              }
-          }
+        else if (message.startsWith("P1:")) {
+            // Split the message into components
+            String[] components = message.split("\\|");
+            
+            // Create a map to store the values
+            HashMap<String, String> gameState = new HashMap<String, String>();
+            
+            // Parse each component
+            for (String component : components) {
+                String[] keyValue = component.split(":", 2); // Split on first colon only
+                if (keyValue.length == 2) {
+                    gameState.put(keyValue[0], keyValue[1]);
+                }
+            }
+            
+            // Update positions based on which player we are
+            if (gameState.containsKey("P1_POS") && gameState.containsKey("P2_POS")) {
+                try {
+                    // Parse positions (format "{x,y}")
+                    String p1PosStr = gameState.get("P1_POS").replace("{", "").replace("}", "");
+                    String p2PosStr = gameState.get("P2_POS").replace("{", "").replace("}", "");
+                    
+                    String[] p1Pos = p1PosStr.split(",");
+                    String[] p2Pos = p2PosStr.split(",");
+                    
+                    float p1X = Float.parseFloat(p1Pos[0].trim());
+                    float p1Y = Float.parseFloat(p1Pos[1].trim());
+                    float p2X = Float.parseFloat(p2Pos[0].trim());
+                    float p2Y = Float.parseFloat(p2Pos[1].trim());
+                    
+                    if (isPlayer1) {
+                        playerX = p1X;
+                        playerY = p1Y + GUI_HEIGHT; // Add GUI offset
+                        opponentX = p2X;
+                        opponentY = p2Y + GUI_HEIGHT; // Add GUI offset
+                    } else {
+                        playerX = p2X;
+                        playerY = p2Y + GUI_HEIGHT; // Add GUI offset
+                        opponentX = p1X;
+                        opponentY = p1Y + GUI_HEIGHT; // Add GUI offset
+                    }
+                } catch (Exception e) {
+                    println("Error parsing positions: " + e);
+                    e.printStackTrace();
+                }
+            }
+            
+            // Update scores
+            if (gameState.containsKey("P1_SCORE") && gameState.containsKey("P2_SCORE")) {
+                try {
+                    player1Score = Integer.parseInt(gameState.get("P1_SCORE"));
+                    player2Score = Integer.parseInt(gameState.get("P2_SCORE"));
+                } catch (NumberFormatException e) {
+                    println("Error parsing scores: " + e);
+                }
+            }
+            
+            // Update time if needed
+            if (gameState.containsKey("TIME")) {
+                try {
+                    gameTime = Integer.parseInt(gameState.get("TIME"));
+                } catch (NumberFormatException e) {
+                    println("Error parsing time: " + e);
+                }
+            }
+
+            if (gameState.containsKey("PROJ")) {  
+                projectiles.clear(); // Full update from server
+                String[] projList = gameState.get("PROJ").split(",");
+                for (String projStr : projList) {
+                    String[] projParts = projStr.split(";");
+                    if (projParts.length == 6) {
+                        try {
+                            int id = Integer.parseInt(projParts[0]);
+                            String owner = projParts[1];
+                            float x = Float.parseFloat(projParts[2]);
+                            float y = Float.parseFloat(projParts[3]);
+                            float vx = Float.parseFloat(projParts[4]);
+                            float vy = Float.parseFloat(projParts[5]);
+                        } catch (NumberFormatException e) {
+                            println("Error parsing projectile: " + e);
+                        }
+                    }
+                }
+            }
+        }
     }
     
     void drawGameScreen() {
@@ -256,6 +281,24 @@ public class DueloArena extends PApplet {
         fill(255, 0, 0); // Red opponent
         ellipse(opponentX, opponentY, PLAYER_SIZE, PLAYER_SIZE);
         
+        for (Object[] p : projectiles) {
+            // Atualiza posição
+            float x = (float)p[2];
+            float y = (float)p[3];
+            float vx = (float)p[4];
+            float vy = (float)p[5];
+
+            x += vx;
+            y += vy;
+
+            // Atualiza no array
+            p[2] = x;
+            p[3] = y;
+
+            // Renderiza
+            fill(0, 255, 0); // Verde
+            ellipse(x, y, PROJ_SIZE, PROJ_SIZE);
+        }
     }
     
     void drawGameOverScreen() {
@@ -577,6 +620,7 @@ public class DueloArena extends PApplet {
                 break;
             case STATE_GAME:
                 // Your game mouse handling
+                handleProjectilesLaunchClick();
                 break;
             case STATE_GAME_OVER:
               if (gameOverOkButton.isMouseOver()) {
@@ -686,6 +730,35 @@ public class DueloArena extends PApplet {
             if (connected) {
                 out.println((inQueue ? "QUEUE:" : "UNQUEUE:") +  loggedInUsername);
             }
+        }
+    }
+
+    void handleProjectilesLaunchClick() {
+        if (connected && out != null) {
+            float centerX = playerX;
+            float centerY = playerY;
+
+            float dx = mouseX - centerX;
+            float dy = mouseY - centerY;
+            float angle = atan2(dy, dx);
+
+            // Normalize
+            float magnitude = sqrt(dx*dx + dy*dy);
+            if (magnitude == 0) return;
+            float vx = (dx / magnitude) * 8;
+            float vy = (dy / magnitude) * 8;
+            int id = nextProjectileId++;
+            
+            out.println(String.format("LAUNCH_PROJ:%d:%s:%.2f:%.2f:%.2f:%.2f", 
+                                        id, 
+                                        loggedInUsername, 
+                                        centerX, 
+                                        centerY, 
+                                        vx, 
+                                        vy));
+
+            projectiles.add(new Object[]{(float) id, loggedInUsername, centerX, centerY, vx, vy});
+
         }
     }
     

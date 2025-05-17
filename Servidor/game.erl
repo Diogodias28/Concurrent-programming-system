@@ -394,6 +394,28 @@ handle_player_input(GameState, PlayerName, Data) ->
         ["MATCH_ENDED", Username] ->
             io:format("Match ended for player ~s~n", [Username]),
             {match_ended, Username};
+        ["LAUNCH_PROJ", IdStr, Owner, XStr, YStr, VXStr, VYStr] ->
+            case partidas:get_partida_by_player(PlayerName) of
+                {ok, NewGameState} ->
+                    Id = list_to_integer(IdStr),
+                    X = list_to_float(XStr),
+                    Y = list_to_float(YStr),
+                    VX = list_to_float(VXStr),
+                    VY = list_to_float(VYStr),
+                    NewProjectile = #projectile{
+                        id = Id,
+                        owner = Owner,
+                        position = {X, Y},
+                        velocity = {VX, VY}
+                    },
+                    UpdatedProjectiles = [NewProjectile | NewGameState#partida.projectiles],
+                    UpdatedGameState = NewGameState#partida{projectiles = UpdatedProjectiles},
+                    % Enviar confirmação para os clientes
+                    UpdatedGameState;
+                {error, not_found} ->
+                    io:format("No partida found for player ~s~n", [PlayerName]),
+                    GameState
+            end;
         _ ->
             io:format("Unknown input: ~s~n", [Data]),
             GameState
@@ -444,6 +466,8 @@ calculate_playerPosition(Partida) ->
     NewPlayer2AccX = Player2AccX * ?FRICTION,
     NewPlayer2AccY = Player2AccY * ?FRICTION,
 
+    NewProjectiles = update_projectiles(Partida#partida.projectiles),
+
     % Update the partida record
     UpdatedPartida = Partida#partida{
         player1Position = {NewPlayer1PosX, NewPlayer1PosY},
@@ -451,14 +475,19 @@ calculate_playerPosition(Partida) ->
         player1acceleration = {NewPlayer1AccX, NewPlayer1AccY},
         player2acceleration = {NewPlayer2AccX, NewPlayer2AccY},
         player1Speed = {NewPlayer1SpeedX, NewPlayer1SpeedY},
-        player2Speed = {NewPlayer2SpeedX, NewPlayer2SpeedY}
+        player2Speed = {NewPlayer2SpeedX, NewPlayer2SpeedY},
+        projectiles = NewProjectiles
     },
     UpdatedPartida.
 
 getWinnder(Partida) ->
     case Partida#partida.player1Score > Partida#partida.player2Score of
         true -> 1;
-        false -> 2
+        false -> 
+            case Partida#partida.player1Score < Partida#partida.player2Score of
+                true -> 2;
+                false -> 0
+            end
     end.
 
 gestorPartidas(Username1) ->
@@ -598,36 +627,44 @@ end_game(GameState, Winner) ->
     Player1 = GameState#partida.player1,
     Player2 = GameState#partida.player2,
     io:format("Game ended. Winner: ~p~n", [Winner]),
+%draw == 0
+    if 
+        Winner == 0 ->
+            gen_tcp:send(GameState#partida.sock1, io_lib:format("GAME_DRAW\n")),
+            gen_tcp:send(GameState#partida.sock2, io_lib:format("GAME_DRAW\n")),
+            remove_partida(Player1);
+        true ->
+            {WinnerUsername, LoserUsername} = 
+                case Winner of
+                    1 -> {Player1, Player2};
+                    2 -> {Player2, Player1};
+                    _ -> {Player1, Player2}
+                end,
 
-    {WinnerUsername, LoserUsername} = 
-        case Winner of
-            1 -> {Player1, Player2};
-            2 -> {Player2, Player1};
-            _ -> {Player1, Player2}
-        end,
+            WinnerLevel = get_player_level(WinnerUsername),
+            LoserLevel = get_player_level(LoserUsername),
+            WinnerStrak = server:get_player_streak(WinnerUsername),
+            LoserStreak = server:get_player_streak(LoserUsername),
 
-    % Extract levels and streaks safely
-    WinnerLevel = case get_player_level(WinnerUsername) of
-        {ok, Level1} -> Level1;
-        _ -> 1
-    end,
-    LoserLevel = case get_player_level(LoserUsername) of
-        {ok, Level2} -> Level2;
-        _ -> 1
-    end,
-    WinnerStreak = case server:get_player_streak(WinnerUsername) of
-        {ok, WinnerS} -> WinnerS;
-        _ -> 0
-    end,
-    LoserStreak = case server:get_player_streak(LoserUsername) of
-        {ok, LoserS} -> LoserS;
-        _ -> 0
-    end,
+            server:update_account_stats(WinnerUsername, WinnerLevel, WinnerStrak, 1),
+            server:update_account_stats(LoserUsername, LoserLevel, LoserStreak, -1), 
 
-    server:update_account_stats(WinnerUsername, WinnerLevel, WinnerStreak, 1),
-    server:update_account_stats(LoserUsername, LoserLevel, LoserStreak, -1), 
+            gen_tcp:send(GameState#partida.sock1, io_lib:format("GAME_OVER: Winner - ~s\n", [WinnerUsername])),
+            gen_tcp:send(GameState#partida.sock2, io_lib:format("GAME_OVER: Winner - ~s\n", [WinnerUsername])),
+            
+            remove_partida(Player1)
+        end.
 
-    gen_tcp:send(GameState#partida.sock1, io_lib:format("GAME_OVER:Winner - ~s\n", [WinnerUsername])),
-    gen_tcp:send(GameState#partida.sock2, io_lib:format("GAME_OVER:Winner - ~s\n", [WinnerUsername])),
-    
-    remove_partida(Player1).
+update_projectiles(Projectiles) ->
+    lists:filtermap(
+        fun(Proj) ->
+            {X, Y} = Proj#projectile.position,
+            if
+                X < ?WALL_THICKNESS; X > (?ARENA_WIDTH - ?WALL_THICKNESS);
+                Y < ?WALL_THICKNESS; Y > (?ARENA_HEIGHT - ?WALL_THICKNESS) ->
+                    false;
+                true ->
+                    {VX, VY} = Proj#projectile.velocity,
+                    {true, Proj#projectile{position = {X + VX, Y + VY}}}
+            end
+        end, Projectiles).
