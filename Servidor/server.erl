@@ -132,22 +132,19 @@ loop({Map, Queue}) ->
                             _ -> 
                                 Streak
                         end,
-                    
-                    NewLevel = 
-                        if
-                            NewStreak == Level -> Level + 1;
-                            true -> 
-                                if 
-                                    NewStreak == -(Level/2) -> 
-                                        if 
-                                            Level == 1 -> 1;
-                                            true -> Level - 1
-                                        end;
-                                    true -> Level
-                                end
-                            end,
 
-                    NewMap = maps:put(Username, {P, S, NewLevel, NewStreak}, Map),
+                    {NewLevel, FinalStreak} =
+                        if
+                            NewStreak == Level -> {Level + 1, 0};
+                            NewStreak == -(Level/2) ->
+                                if
+                                    Level == 1 -> {1, 0};
+                                    true -> {Level - 1, 0}
+                                end;
+                            true -> {Level, NewStreak}
+                        end,
+
+                    NewMap = maps:put(Username, {P, S, NewLevel, FinalStreak}, Map),
                     save_accounts(NewMap),
                     Pid ! ok,
                     loop({NewMap, Queue});

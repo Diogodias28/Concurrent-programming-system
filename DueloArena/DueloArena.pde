@@ -29,6 +29,8 @@ public class DueloArena extends PApplet {
     final int STATE_GAME_OVER = 6;
     int currentState = STATE_IP_INPUT;
     int gameTime = 0;
+    int playerLevel = 1;
+    int playerStreak = 0;
     
     // Connection variables
     String serverIP = "";
@@ -84,6 +86,8 @@ public class DueloArena extends PApplet {
     Button createAccountButton;
     Button backToLoginButton;
     Button submitCreateButton;
+    Button logoutButton;
+    Button deleteAccountButton;
 
     // Object[]: [id(float), owner(String), x(float), y(float), vx(float), vy(float)]
     ArrayList<Object[]> projectiles = new ArrayList<>();
@@ -100,6 +104,8 @@ public class DueloArena extends PApplet {
         backToLoginButton = new Button(width/2 - 75, 400, 150, 40, "Back to Login", color(150, 150, 150), color(255));
         submitCreateButton = new Button(width/2 - 75, 360, 150, 40, "Create Account", color(0, 150, 0), color(255));
         gameOverOkButton = new Button(width/2 - 75, height/2 + 50, 150, 40, "OK", color(0, 150, 0), color(255));
+        logoutButton = new Button(width/2 - 100, height/2 + 50, 200, 40, "Logout", color(200, 0, 0), color(255));
+        deleteAccountButton = new Button(width/2 - 100, height/2 + 100, 200, 40, "Delete Account", color(150, 0, 0), color(255));
         
         // Initialize player positions
         resetGamePositions();
@@ -590,20 +596,58 @@ public class DueloArena extends PApplet {
     }
     
     void drawQueueScreen() {
-        // Title
+        background(240);
+        
+        // Title (unchanged)
         fill(0);
         textAlign(CENTER, CENTER);
         textSize(32);
         text("Matchmaking", width/2, 100);
         
-        // Queue status
+        // Queue status (unchanged)
         textSize(24);
         text(inQueue ? "Searching for opponent..." : "Press the button to queue", width/2, 180);
         
-        // Draw queue button
+        // Draw queue button (unchanged)
         queueButton.display();
+        
+        // Draw logout and delete account buttons (unchanged)
+        logoutButton.display();
+        deleteAccountButton.display();
+    
+        // Player stats panel on the right side
+        drawPlayerStatsPanel();
     }
     
+    void drawPlayerStatsPanel() {
+        // Panel background
+        fill(220);
+        noStroke();
+        rect(width - 250, 50, 200, 150, 10);
+        
+        // Panel title
+        fill(0);
+        textAlign(CENTER, CENTER);
+        textSize(20);
+        text("Your Stats", width - 150, 80);
+        
+        // Player name
+        textAlign(LEFT, CENTER);
+        textSize(16);
+        text("Player: " + loggedInUsername, width - 240, 110);
+        
+        // Level with icon
+        fill(0, 100, 200); // Blue for level
+        text("Level: " + playerLevel, width - 240, 140);
+        
+        // Streak with icon
+        fill(200, 100, 0); // Orange for streak
+        text("Streak: " + playerStreak, width - 240, 170);
+        
+        // Reset fill color
+        fill(0);
+    }
+        
     public void mousePressed() {
         switch(currentState) {
             case STATE_IP_INPUT:
@@ -728,7 +772,56 @@ public class DueloArena extends PApplet {
             queueButton.text = inQueue ? "Leave Queue" : "Enter Queue";
             
             if (connected) {
-                out.println((inQueue ? "QUEUE:" : "UNQUEUE:") +  loggedInUsername);
+                out.println((inQueue ? "QUEUE:" : "UNQUEUE:") + loggedInUsername);
+            }
+        }
+        else if (logoutButton.isMouseOver()) {
+            if (connected) {
+                out.println("LOGOUT:" + loggedInUsername);
+                try {
+                    String response = in.readLine();
+                    if ("LOGOUT_SUCCESS".equals(response)) {
+                        // Reset all relevant states
+                        loggedInUsername = "";
+                        username = "";
+                        password = "";
+                        inQueue = false;
+                        queueButton.text = "Enter Queue";
+                        player1Score = 0;
+                        player2Score = 0;
+                        currentState = STATE_LOGIN;
+                        
+                        // Clear any game state
+                        resetGamePositions();
+                        
+                        // Reset movement flags
+                        moveUp = moveDown = moveLeft = moveRight = false;
+                    }
+                } catch (IOException e) {
+                    println("Error during logout: " + e.getMessage());
+                }
+            }
+        }
+        else if (deleteAccountButton.isMouseOver()) {
+            String password = JOptionPane.showInputDialog(null, "Enter password to delete account:");
+            if (password != null && !password.isEmpty()) {
+                if (connected) {
+                    out.println("CLOSE_ACCOUNT:" + loggedInUsername + ":" + password);
+                    try {
+                        String response = in.readLine();
+                        if ("ACCOUNT_CLOSED".equals(response)) {
+                            loggedInUsername = "";
+                            currentState = STATE_LOGIN;
+                            inQueue = false;
+                            queueButton.text = "Enter Queue";
+                            JOptionPane.showMessageDialog(null, "Account deleted successfully");
+                        } else {
+                            JOptionPane.showMessageDialog(null, "Account deletion failed");
+                        }
+                    } catch (IOException e) {
+                        println("Error during account deletion: " + e.getMessage());
+                    }
+                }
             }
         }
     }
@@ -807,7 +900,19 @@ public class DueloArena extends PApplet {
             try {
                 String response = in.readLine();
                 if ("LOGIN_SUCCESS".equals(response)) {
-                    loggedInUsername = username; // Store the username
+                    loggedInUsername = username;
+                    
+                    // Request player stats
+                    out.println("GET_STATS:" + username);
+                    String statsResponse = in.readLine();
+                    if (statsResponse != null && statsResponse.startsWith("STATS:")) {
+                        String[] stats = statsResponse.substring(6).split(",");
+                        if (stats.length >= 2) {
+                            playerLevel = Integer.parseInt(stats[0]);
+                            playerStreak = Integer.parseInt(stats[1]);
+                        }
+                    }
+                    
                     currentState = STATE_QUEUE;
                     loginError = false;
                 } else {
@@ -820,7 +925,7 @@ public class DueloArena extends PApplet {
             }
         }
     }
-    
+        
     void switchToCreateAccount() {
         currentState = STATE_CREATE_ACCOUNT;
         newUsername = "";

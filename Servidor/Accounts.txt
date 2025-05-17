@@ -1,10 +1,9 @@
 [{"Diogo",{"password10",false,5,3}},
  {"Lipe",{"Gamer",false,5,1}},
  {"Loren",{"NotGamer",false,1,0}},
- {"hugo",{"123456",false,3,1}},
- {"ola",{"ola1234",false,2,1}},
+ {"ola",{"ola1234",false,1,-1}},
  {"test",{"test123",false,3,2}},
- {"teste",{"teste",false,2,1}},
- {"user1",{"pass1",false,1,-1}},
+ {"teste",{"teste",false,10,-2}},
+ {"user1",{"pass1",false,9,2}},
  {"user2",{"pass2",false,2,0}},
  {"user3",{"pass3",false,3,0}}].
