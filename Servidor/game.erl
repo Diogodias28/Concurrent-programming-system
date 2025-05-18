@@ -689,7 +689,7 @@ check_collisions(Username) ->
                     update_speed(Partida#partida.player2, {0, 0}),
                     update_acceleration(Partida#partida.player1, {0, 0}),
                     update_acceleration(Partida#partida.player2, {0, 0}),
-                    update_score(Partida#partida.player1 + 2, Partida#partida.player2Score),
+                    update_score(Partida#partida.player1, Partida#partida.player1Score + 2),
                     update_projectiles(Partida#partida.player1, []),
                     update_keys(Partida#partida.player1, []);
                 true ->
