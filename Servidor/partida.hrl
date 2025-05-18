@@ -13,13 +13,16 @@
     player2Score,
     player1LastShot = 0,
     player2LastShot = 0,
+    player1ShotCooldown = 0,
+    player2ShotCooldown = 0,
+    player1ShotSpeed = 0,
+    player2ShotSpeed = 0,
     projectiles = [],
     startTime
 }).
 
 -record(projectile, {
-    id,
-    owner,
     position,
-    velocity
+    velocity,
+    owner
 }).

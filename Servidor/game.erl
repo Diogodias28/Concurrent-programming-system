@@ -234,8 +234,8 @@ parse_queue_input(Data) ->
 
 comecarjogo(Sock1, Username1, Sock2, Username2) ->
     io:format("Starting game between ~s and ~s~n", [Username1, Username2]),
-    gen_tcp:send(Sock1, "MATCHED " ++ Username2 ++ "\n"),
-    gen_tcp:send(Sock2, "MATCHED " ++ Username1 ++ "\n"),
+    gen_tcp:send(Sock1, "MATCHED " ++ Username1 ++ " " ++ Username2 ++ "\n"),
+    gen_tcp:send(Sock2, "MATCHED " ++ Username1 ++ " " ++ Username2 ++ "\n"),
     % Initialize game state
     NewPartida = #partida{
         player1 = Username1,
@@ -246,6 +246,10 @@ comecarjogo(Sock1, Username1, Sock2, Username2) ->
         player2Position = {700, 300},
         player1LastShot = erlang:monotonic_time(millisecond) - ?SHOT_COOLDOWN,
         player2LastShot = erlang:monotonic_time(millisecond) - ?SHOT_COOLDOWN,
+        player1ShotCooldown = ?SHOT_COOLDOWN,
+        player2ShotCooldown = ?SHOT_COOLDOWN,
+        player1ShotSpeed = 10,
+        player2ShotSpeed = 10,
         player1Score = 0,
         player2Score = 0,
         projectiles = [],
@@ -441,54 +445,44 @@ handle_player_input(GameState, PlayerName, Data) ->
         ["MATCH_ENDED", Username] ->
             io:format("Match ended for player ~s~n", [Username]),
             {match_ended, Username};
-        ["LAUNCH_PROJ", IdStr, Owner, XStr, YStr, VXStr, VYStr] ->
-            case partidas:get_partida_by_player(PlayerName) of
-                {ok, NewGameState} ->
-                    Now = erlang:monotonic_time(millisecond),
-                    Player1Name = NewGameState#partida.player1,
-                    Player2Name = NewGameState#partida.player2,
-                    {CanShoot, TempGameState} =
-                        if 
-                            PlayerName == Player1Name ->
-                                Last = NewGameState#partida.player1LastShot,
-                                if
-                                    Now - Last >= ?SHOT_COOLDOWN ->
-                                        {true, NewGameState#partida{player1LastShot = Now}};
-                                    true ->
-                                        {false, NewGameState}
-                                end;
-                            PlayerName == Player2Name ->
-                                Last = NewGameState#partida.player2LastShot,
-                                if
-                                    Now - Last >= ?SHOT_COOLDOWN ->
-                                        {true, NewGameState#partida{player2LastShot = Now}};
-                                    true ->
-                                        {false, NewGameState}
-                                end
-                        end,
-                case CanShoot of
-                    true ->
-                        Id = list_to_integer(IdStr),
-                        X = list_to_float(XStr),
-                        Y = list_to_float(YStr),
-                        VX = list_to_float(VXStr),
-                        VY = list_to_float(VYStr),
-                        NewProjectile = #projectile{
-                            id = Id,
-                            owner = Owner,
-                            position = {X, Y},
-                            velocity = {VX, VY}
-                        },
-                        UpdatedProjectiles = [NewProjectile | TempGameState#partida.projectiles],
-                        UpdatedGameState = TempGameState#partida{projectiles = UpdatedProjectiles},
-                        UpdatedGameState;
-                    false ->
-                        io:format("Player ~s tried to shot before the cooldown ~n", [PlayerName]),
-                        NewGameState
-                end;
-                {error, not_found} ->
-                    io:format("No partida found for player ~s~n", [PlayerName]),
-                    GameState
+        ["LAUNCH_PROJ", AngleStr] ->
+            io:format("Launching projectile for player ~s at angle ~s~n", [PlayerName, AngleStr]),
+            Angle = list_to_float(AngleStr),
+            case PlayerName of
+                Player when Player == GameState#partida.player1 ->
+                    case erlang:monotonic_time(millisecond) - GameState#partida.player1LastShot > GameState#partida.player1ShotCooldown of
+                        true ->
+                            NewProjectile = #projectile{
+                                position = GameState#partida.player1Position,
+                                velocity = {GameState#partida.player1ShotSpeed * math:cos(Angle), GameState#partida.player1ShotSpeed * math:sin(Angle)},
+                                owner = PlayerName % Set owner here
+                            },
+                            NewGameState = GameState#partida{
+                                projectiles = [NewProjectile | GameState#partida.projectiles],
+                                player1LastShot = erlang:monotonic_time(millisecond)
+                            },
+                            NewGameState;
+                        false ->
+                            io:format("Shot cooldown for player ~s~n", [PlayerName]),
+                            GameState
+                    end;
+                Player when Player == GameState#partida.player2 ->
+                    case erlang:monotonic_time(millisecond) - GameState#partida.player2LastShot > GameState#partida.player2ShotCooldown of
+                        true ->
+                            NewProjectile = #projectile{
+                                position = GameState#partida.player2Position,
+                                velocity = {GameState#partida.player2ShotSpeed * math:cos(Angle), GameState#partida.player2ShotSpeed * math:sin(Angle)},
+                                owner = PlayerName % Set owner here
+                            },
+                            NewGameState = GameState#partida{
+                                projectiles = [NewProjectile | GameState#partida.projectiles],
+                                player2LastShot = erlang:monotonic_time(millisecond)
+                            },
+                            NewGameState;
+                        false ->
+                            io:format("Shot cooldown for player ~s~n", [PlayerName]),
+                            GameState
+                    end
             end;
         _ ->
             io:format("Unknown input: ~s~n", [Data]),
@@ -540,8 +534,6 @@ calculate_playerPosition(Partida) ->
     NewPlayer2AccX = Player2AccX * ?ACCEL_FRICTION,
     NewPlayer2AccY = Player2AccY * ?ACCEL_FRICTION,
 
-    NewProjectiles = update_projectiles(Partida#partida.projectiles),
-
     % Update the partida record
     UpdatedPartida = Partida#partida{
         player1Position = {NewPlayer1PosX, NewPlayer1PosY},
@@ -549,8 +541,7 @@ calculate_playerPosition(Partida) ->
         player1acceleration = {NewPlayer1AccX, NewPlayer1AccY},
         player2acceleration = {NewPlayer2AccX, NewPlayer2AccY},
         player1Speed = {NewPlayer1SpeedX, NewPlayer1SpeedY},
-        player2Speed = {NewPlayer2SpeedX, NewPlayer2SpeedY},
-        projectiles = NewProjectiles
+        player2Speed = {NewPlayer2SpeedX, NewPlayer2SpeedY}
     },
     UpdatedPartida.
 
@@ -563,6 +554,17 @@ getWinner(Partida) ->
                 false -> 0
             end
     end.
+
+calculate_projectiles(Partida) ->
+    Projectiles = Partida#partida.projectiles,
+    UpdatedProjectiles = lists:map(fun(Proj) ->
+        {X, Y} = Proj#projectile.position,
+        {VX, VY} = Proj#projectile.velocity,
+        NewX = X + VX,
+        NewY = Y + VY,
+        Proj#projectile{position = {NewX, NewY}}
+    end, Projectiles),
+    Partida#partida{projectiles = UpdatedProjectiles}.
 
 gestorPartidas(Username1) ->
     %io:format("GestorPartidas called for ~s~n", [Username1]),
@@ -586,11 +588,12 @@ gestorPartidas(Username1) ->
                 _ ->
                     UpdatedPartida = calculate_playerPosition(P),
 
-                    UpdatedPartida2 = check_collisions(UpdatedPartida),
+                    UpdatedPartida2 = calculate_projectiles(UpdatedPartida),
 
+                    UpdatedPartida3 = check_collisions(UpdatedPartida2),
 
                     %io:format("Updated partida: ~p~n", [UpdatedPartida]),
-                    update_partida(Username1, UpdatedPartida2),
+                    update_partida(Username1, UpdatedPartida3),
                     %check collision
                     
 
@@ -613,14 +616,27 @@ wait_for_continue() ->
             gestorPartidas(Username1)
     end.
 
+format_projectiles(Projectiles) ->
+    lists:map(fun(Proj) ->
+        {X, Y} = Proj#projectile.position,
+        Owner = Proj#projectile.owner,
+        io_lib:format("~p,~p,~s", [X, Y, Owner])
+    end, Projectiles).
+
 send_partida(Partida, TimeLeft) ->
-    CustomData = io_lib:format("P1:~s|P2:~s|P1_POS:~w|P2_POS:~w|P1_SCORE:~p|P2_SCORE:~p|TIME:~p",
+    TrimmedProjectiles = format_projectiles(Partida#partida.projectiles),
+    FlatProj = lists:flatten("[" ++ string:join(TrimmedProjectiles, ",") ++ "]"),
+
+    io:format("Sending partida data: ~p~n", [FlatProj]),
+
+    CustomData = io_lib:format("P1:~s|P2:~s|P1_POS:~w|P2_POS:~w|P1_SCORE:~p|P2_SCORE:~p|PROJ:~s|TIME:~p",
                                [Partida#partida.player1,
                                 Partida#partida.player2,
                                 Partida#partida.player1Position,
                                 Partida#partida.player2Position,
                                 Partida#partida.player1Score,
                                 Partida#partida.player2Score,
+                                FlatProj,
                                 TimeLeft]),
     gen_tcp:send(Partida#partida.sock1, CustomData ++ "\n"),
     gen_tcp:send(Partida#partida.sock2, CustomData ++ "\n").
@@ -667,13 +683,11 @@ check_collisions(Partida) ->
                     ProjX = element(1, Proj#projectile.position),
                     ProjY = element(2, Proj#projectile.position),
                     Owner = Proj#projectile.owner,
-
                     % Colisão com borda
                     if
-                        ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaW - Wall - ?PROJECTILE_RADIUS; ProjY < Wall + ?PROJECTILE_RADIUS; ProjY > ArenaH - Wall - ?PLAYER_RADIUS ->
+                        ProjX < Wall + ?PROJECTILE_RADIUS; ProjX > ArenaW - Wall - ?PROJECTILE_RADIUS; ProjY < Wall + ?PROJECTILE_RADIUS; ProjY > ArenaH - ?PLAYER_RADIUS ->
                             AccPartida#partida{projectiles = lists:delete(Proj, AccPartida#partida.projectiles)};
                         true ->
-                            % Colisão com jogadores
                             DistP1 = distance({ProjX, ProjY}, AccPartida#partida.player1Position),
                             DistP2 = distance({ProjX, ProjY}, AccPartida#partida.player2Position),
                             case true of
@@ -742,17 +756,3 @@ end_game(GameState, Winner) ->
             
             remove_partida(Player1)
     end.
-
-update_projectiles(Projectiles) ->
-    lists:filtermap(
-        fun(Proj) ->
-            {X, Y} = Proj#projectile.position,
-            if
-                X < ?WALL_THICKNESS; X > (?ARENA_WIDTH - ?WALL_THICKNESS);
-                Y < ?WALL_THICKNESS; Y > (?ARENA_HEIGHT - ?WALL_THICKNESS) ->
-                    false;
-                true ->
-                    {VX, VY} = Proj#projectile.velocity,
-                    {true, Proj#projectile{position = {X + VX, Y + VY}}}
-            end
-        end, Projectiles).
