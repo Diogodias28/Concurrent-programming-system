@@ -486,27 +486,35 @@ public class DueloArena extends PApplet {
         rect(width - WALL_THICKNESS, GUI_HEIGHT, WALL_THICKNESS, ARENA_HEIGHT);
     }
 
+
     public void keyPressed() {
         if (currentState == STATE_GAME) {
             switch (key) {
-                case 'w':
-                case 'W':
-                    moveUp = true;
+                case 'w': case 'W':
+                    if (!upPressed) {
+                        out.println("KEY_PRESS:UP");
+                        upPressed = true;
+                    }
                     break;
-                case 's':
-                case 'S':
-                    moveDown = true;
+                case 's': case 'S':
+                    if (!downPressed) {
+                        out.println("KEY_PRESS:DOWN");
+                        downPressed = true;
+                    }
                     break;
-                case 'a':
-                case 'A':
-                    moveLeft = true;
+                case 'a': case 'A':
+                    if (!leftPressed) {
+                        out.println("KEY_PRESS:LEFT");
+                        leftPressed = true;
+                    }
                     break;
-                case 'd':
-                case 'D':
-                    moveRight = true;
+                case 'd': case 'D':
+                    if (!rightPressed) {
+                        out.println("KEY_PRESS:RIGHT");
+                        rightPressed = true;
+                    }
                     break;
             }
-            sendMovementState();
         } else {
             switch (currentState) {
                 case STATE_IP_INPUT:
@@ -525,24 +533,31 @@ public class DueloArena extends PApplet {
     public void keyReleased() {
         if (currentState == STATE_GAME) {
             switch (key) {
-                case 'w':
-                case 'W':
-                    moveUp = false;
+                case 'w': case 'W':
+                    if (upPressed) {
+                        out.println("KEY_RELEASE:UP");
+                        upPressed = false;
+                    }
                     break;
-                case 's':
-                case 'S':
-                    moveDown = false;
+                case 's': case 'S':
+                    if (downPressed) {
+                        out.println("KEY_RELEASE:DOWN");
+                        downPressed = false;
+                    }
                     break;
-                case 'a':
-                case 'A':
-                    moveLeft = false;
+                case 'a': case 'A':
+                    if (leftPressed) {
+                        out.println("KEY_RELEASE:LEFT");
+                        leftPressed = false;
+                    }
                     break;
-                case 'd':
-                case 'D':
-                    moveRight = false;
+                case 'd': case 'D':
+                    if (rightPressed) {
+                        out.println("KEY_RELEASE:RIGHT");
+                        rightPressed = false;
+                    }
                     break;
             }
-            sendMovementState();
         }
     }
 

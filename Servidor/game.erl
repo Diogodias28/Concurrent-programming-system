@@ -310,6 +310,10 @@ handle_player_input(GameState, PlayerName, Data) ->
     io:format("Handling input for Player ~p: ~s~n", [PlayerName, Data]),
     Trimmed = string:trim(Data),
     case string:split(Trimmed, ":", all) of
+        ["KEY_PRESS", Key] ->
+            update_key_state(GameState, PlayerName, string:to_upper(Key), press);
+        ["KEY_RELEASE", Key] ->
+            update_key_state(GameState, PlayerName, string:to_upper(Key), release);
         ["PLAYER1SCORE"] ->
             CurrentScore = GameState#partida.player1Score,
             NewScore = CurrentScore + 1,
@@ -492,6 +496,28 @@ handle_player_input(GameState, PlayerName, Data) ->
             GameState
     end.
 
+update_key_state(GameState, PlayerName, Key, press) ->
+    case PlayerName of
+        P when P =:= GameState#partida.player1 ->
+            Keys = GameState#partida.player1_keys,
+            NewKeys = lists:usort([Key | Keys]),
+            GameState#partida{player1_keys = NewKeys};
+        P when P =:= GameState#partida.player2 ->
+            Keys = GameState#partida.player2_keys,
+            NewKeys = lists:usort([Key | Keys]),
+            GameState#partida{player2_keys = NewKeys}
+    end;
+update_key_state(GameState, PlayerName, Key, release) ->
+    case PlayerName of
+        P when P =:= GameState#partida.player1 ->
+            Keys = GameState#partida.player1_keys,
+            NewKeys = lists:delete(Key, Keys),
+            GameState#partida{player1_keys = NewKeys};
+        P when P =:= GameState#partida.player2 ->
+            Keys = GameState#partida.player2_keys,
+            NewKeys = lists:delete(Key, Keys),
+            GameState#partida{player2_keys = NewKeys}
+    end.
 
 calculate_velocity(SpeedX, SpeedY, {AccX, AccY}) ->
     NewSpeedX = speed_limit(SpeedX + AccX, ?MAX_SPEED, -?MAX_SPEED) * ?FRICTION,
@@ -636,9 +662,8 @@ gestorPartidas(Username1) ->
     Partida = get_partida_by_player(Username1),
     case Partida of
         {ok, P} ->
-            %io:format("Partida found for ~s: ~p~n", [Username1, P]),
-            % Debug print before sending partida
-            %io:format("Sending partida to client: ~p~n", [P]),
+            % Apply acceleration based on held keys
+            % Continue as before, but use P2 instead of P
             StartTime = P#partida.startTime,
             CurrentTime = erlang:monotonic_time(millisecond),
             Elapsed = CurrentTime - StartTime,
@@ -651,7 +676,11 @@ gestorPartidas(Username1) ->
                     end_game(P, getWinner(P)),
                     ok;
                 _ ->
-                    UpdatedPartida = calculate_playerPosition(P),
+                    P1Keys = P#partida.player1_keys,
+                    P2Keys = P#partida.player2_keys,
+                    io:format("P1Keys: ~p\nP2Keys: ~p" ,[P1Keys,P2Keys]),
+                    P2 = apply_held_keys(P, P1Keys, P2Keys),
+                    UpdatedPartida = calculate_playerPosition(P2),
 
                     UpdatedPartida2 = calculate_projectiles(UpdatedPartida),
 
@@ -711,8 +740,6 @@ send_partida(Partida, TimeLeft) ->
         [] -> "[]";
         _ -> lists:flatten("[" ++ lists:sublist(ModData, length(ModData)-1) ++ "]")
     end,
-
-    io:format("Sending partida data: ~p~n", [TrimmedMod]),
 
     CustomData = io_lib:format("P1:~s|P2:~s|P1_POS:~w|P2_POS:~w|P1_SCORE:~p|P2_SCORE:~p|MOD:~s|PROJ:~s|TIME:~p",
                                [Partida#partida.player1,
@@ -926,3 +953,47 @@ get_player_stats(Username) ->
         _ -> 0
     end,
     {Level, Streak}.
+
+apply_held_keys(Partida, P1Keys, P2Keys) ->
+    % For player 1
+    {AccX1, AccY1} = Partida#partida.player1acceleration,
+    AccX1a = case lists:member("LEFT", P1Keys) of
+        true -> AccX1 - ?ACCELERATION_INCREMENT;
+        false -> AccX1
+    end,
+    AccX1b = case lists:member("RIGHT", P1Keys) of
+        true -> AccX1a + ?ACCELERATION_INCREMENT;
+        false -> AccX1a
+    end,
+    AccY1a = case lists:member("UP", P1Keys) of
+        true -> AccY1 - ?ACCELERATION_INCREMENT;
+        false -> AccY1
+    end,
+    AccY1b = case lists:member("DOWN", P1Keys) of
+        true -> AccY1a + ?ACCELERATION_INCREMENT;
+        false -> AccY1a
+    end,
+
+    % For player 2
+    {AccX2, AccY2} = Partida#partida.player2acceleration,
+    AccX2a = case lists:member("LEFT", P2Keys) of
+        true -> AccX2 - ?ACCELERATION_INCREMENT;
+        false -> AccX2
+    end,
+    AccX2b = case lists:member("RIGHT", P2Keys) of
+        true -> AccX2a + ?ACCELERATION_INCREMENT;
+        false -> AccX2a
+    end,
+    AccY2a = case lists:member("UP", P2Keys) of
+        true -> AccY2 - ?ACCELERATION_INCREMENT;
+        false -> AccY2
+    end,
+    AccY2b = case lists:member("DOWN", P2Keys) of
+        true -> AccY2a + ?ACCELERATION_INCREMENT;
+        false -> AccY2a
+    end,
+
+    Partida#partida{
+        player1acceleration = {AccX1b, AccY1b},
+        player2acceleration = {AccX2b, AccY2b}
+    }.

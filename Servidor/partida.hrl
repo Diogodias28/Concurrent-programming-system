@@ -20,7 +20,9 @@
     projectiles = [],
     modificadores = [],
     modificadorSpawnTime = 0,
-    startTime
+    startTime,
+    player1_keys = [],
+    player2_keys = []
 }).
 
 -record(projectile, {
