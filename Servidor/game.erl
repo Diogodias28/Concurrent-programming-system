@@ -609,7 +609,7 @@ gestorPartidas(Username1) ->
                     %ver se spawna modificador
                     %check if game is over
 
-                    send_partida(UpdatedPartida2, TimeLeft),
+                    send_partida(UpdatedPartida5, TimeLeft),
                     erlang:send_after(16, self(), {continue, Username1}),
                     wait_for_continue()
             end;
