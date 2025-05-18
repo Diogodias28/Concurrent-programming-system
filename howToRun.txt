@@ -1,2 +1,5 @@
-c(server), c(game), c(queuelist), c(partidas).
+c(server), c(game), c(queuelist), c(partidas), c(socketRegistry).
 game:start(1234).
+
+
+game:shutdown_server().
