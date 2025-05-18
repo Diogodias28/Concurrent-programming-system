@@ -83,6 +83,13 @@ public class DueloArena extends PApplet {
     
     int player1Score = 0, player2Score = 0;
     
+    // Modifier colors
+    final color MOD_GREEN = color(0, 255, 0);    // Type 1
+    final color MOD_ORANGE = color(255, 165, 0); // Type 2
+    final color MOD_BLUE = color(100, 100, 255); // Type 3 (lighter blue)
+    final color MOD_RED = color(255, 100, 100);  // Type 4 (lighter red)
+    final int MOD_SIZE = 20;                     // Size of modifier objects
+    
     // UI elements
     Button queueButton;
     Button loginButton;
@@ -92,9 +99,6 @@ public class DueloArena extends PApplet {
     Button logoutButton;
     Button deleteAccountButton;
     Button top10Button;
-
-    // Object[]: [id(float), owner(String), x(float), y(float), vx(float), vy(float)]
-    ArrayList<Object[]> projectiles = new ArrayList<>();
     
     class Projectile {
       public float x,y;
@@ -106,7 +110,19 @@ public class DueloArena extends PApplet {
       }
     }
     
+    class Modifier {
+        public float x, y;
+        public int type;
+        
+        public Modifier(float x, float y, int type) {
+            this.x = x;
+            this.y = y;
+            this.type = type;
+        }
+    }
+    
     ArrayList<Projectile> projectiles = new ArrayList<>();
+    ArrayList<Modifier> modifiers = new ArrayList<>();
     
     public void settings() {
         size(ARENA_WIDTH, ARENA_HEIGHT + GUI_HEIGHT);
@@ -208,6 +224,33 @@ public class DueloArena extends PApplet {
             }
         }
     }
+    
+    void parseModifiers(String modData) {
+        modifiers.clear();
+        
+        // Clean the input string
+        String clean = modData.replaceAll("\\s+", "")
+                             .replace("\"", "")
+                             .replace("[", "")
+                             .replace("]", "");
+        
+        if (clean.isEmpty()) return;
+        
+        // Split into components
+        String[] parts = clean.split(",");
+        
+        // Parse components in groups of 3 (x,y,type)
+        for (int i = 0; i < parts.length - 2; i += 3) {
+            try {
+                float x = Float.parseFloat(parts[i]);
+                float y = Float.parseFloat(parts[i+1]);
+                int type = Integer.parseInt(parts[i+2]);
+                modifiers.add(new Modifier(x, y, type));
+            } catch (NumberFormatException e) {
+                System.err.println("Error parsing modifier at index " + i);
+            }
+        }
+    }
 
    void handleServerMessage(String message) {
         println("Server message: " + message);
@@ -229,6 +272,23 @@ public class DueloArena extends PApplet {
             currentState = STATE_GAME_OVER;
             inQueue = false;
             queueButton.text = "Enter Queue";
+        }
+        else if (message.startsWith("STATS:")) {
+            String[] stats = message.substring(6).split(",");
+            if (stats.length >= 2) {
+                playerLevel = Integer.parseInt(stats[0]);
+                playerStreak = Integer.parseInt(stats[1]);
+            }
+        }
+        else if (message.startsWith("TOP_10:")) {
+            String top10Raw = message.substring(7).trim();
+            out.println("DEBUG: [" + message + "]");
+            if (top10Raw.isEmpty() || top10Raw.equals("EMPTY")) {
+                top10Lines = new String[] { "Sem dados de Top 10." };
+            } else {
+                top10Lines = top10Raw.split("\\|\\|");
+            }
+            showTop10 = true;
         }
         else if (message.startsWith("P1:")) {
             // Split the message into components
@@ -301,16 +361,29 @@ public class DueloArena extends PApplet {
                                                message.indexOf("|TIME:"));
               parseProjectiles(projData);
           }
+          
+          if (message.contains("MOD:")) {
+              String modData = message.substring(message.indexOf("MOD:") + 4, 
+                                       message.indexOf("|PROJ:"));
+              parseModifiers(modData);
+          }
+   
         }
-        else if (message.startsWith("TOP_10:")) {
-            String top10Raw = message.substring(7).trim();
-            out.println("DEBUG: [" + message + "]");
-            if (top10Raw.isEmpty() || top10Raw.equals("EMPTY")) {
-                top10Lines = new String[] { "Sem dados de Top 10." };
-            } else {
-                top10Lines = top10Raw.split("\\|\\|");
+    }
+    
+    void drawModifiers() {
+        for (Modifier m : modifiers) {
+            // Set color based on modifier type
+            switch(m.type) {
+                case 1: fill(MOD_GREEN); break;
+                case 2: fill(MOD_ORANGE); break;
+                case 3: fill(MOD_BLUE); break;
+                case 4: fill(MOD_RED); break;
+                default: fill(150); // Default gray
             }
-            showTop10 = true;
+            
+            // Draw modifier as a circle
+            ellipse(m.x, m.y + GUI_HEIGHT, MOD_SIZE, MOD_SIZE);
         }
     }
     
@@ -320,6 +393,8 @@ public class DueloArena extends PApplet {
         
         // Draw arena walls
         drawArena();
+        
+        drawModifiers();
         
         // Determine which positions correspond to which player
         float blueX = isPlayer1 ? playerX : opponentX;
@@ -965,18 +1040,6 @@ public class DueloArena extends PApplet {
                 String response = in.readLine();
                 if ("LOGIN_SUCCESS".equals(response)) {
                     loggedInUsername = username;
-                    
-                    // Request player stats
-                    out.println("GET_STATS:" + username);
-                    String statsResponse = in.readLine();
-                    if (statsResponse != null && statsResponse.startsWith("STATS:")) {
-                        String[] stats = statsResponse.substring(6).split(",");
-                        if (stats.length >= 2) {
-                            playerLevel = Integer.parseInt(stats[0]);
-                            playerStreak = Integer.parseInt(stats[1]);
-                        }
-                    }
-                    
                     currentState = STATE_QUEUE;
                     loginError = false;
                 } else {
