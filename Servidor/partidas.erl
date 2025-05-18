@@ -1,5 +1,5 @@
 -module(partidas).
--export([update_position/2, update_speed/2, update_acceleration/2, update_score/2, update_last_shot/2, update_shot_cooldown/2, update_shot_speed/2, update_keys/2, update_projectiles/2, update_modificadores/2, update_modificador_spawn_time/2, start/0, add_partida/1, get_partidas/0, update_partida/2, remove_partida/1, get_partida_by_player/1]).
+-export([update_position/2, update_speed/2, update_acceleration/2, update_score/2, update_last_shot/2, update_shot_cooldown/2, update_shot_speed/2, update_keys/2, update_projectiles/2, update_modificadores/2, update_modificador_spawn_time/2, start/0, add_partida/1, get_partidas/0, remove_partida/1, get_partida_by_player/1]).
 -include("partida.hrl").
 
 start() ->
@@ -11,9 +11,6 @@ add_partida(Partida) ->
 
 get_partidas() ->
     ets:tab2list(partidas_table).
-
-update_partida(Player1, UpdatedPartida) ->
-    ets:insert(partidas_table, UpdatedPartida).
 
 remove_partida(Player1) ->
     ets:delete(partidas_table, Player1).

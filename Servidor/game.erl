@@ -2,7 +2,7 @@
 -import(gen_tcp, [listen/2]).
 -import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0, get_player_level/1, get_player_streak/1, update_account_stats/4,top_10/0, updateStats/3]).
 -import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0, remove_from_queue/1]).
--import(partidas, [add_partida/1, get_partidas/0, update_partida/2, remove_partida/1, get_partida_by_player/1,update_position/2, update_speed/2, update_acceleration/2, update_score/2, update_last_shot/2, update_shot_cooldown/2, update_shot_speed/2, update_keys/2, update_projectiles/2, update_modificadores/2, update_modificador_spawn_time/2]).
+-import(partidas, [add_partida/1, get_partidas/0, remove_partida/1, get_partida_by_player/1,update_position/2, update_speed/2, update_acceleration/2, update_score/2, update_last_shot/2, update_shot_cooldown/2, update_shot_speed/2, update_keys/2, update_projectiles/2, update_modificadores/2, update_modificador_spawn_time/2]).
 -include("partida.hrl").
 -export([start/1, authenticator/1, parse_auth_input/1, shutdown_server/0]).
 
@@ -128,7 +128,6 @@ handle_create_account(Sock, IP, Username, Password) ->
             authenticator(Sock)
     end.
 
-% Rest of your existing functions...
 parse_auth_input(Data) ->
     Trimmed = string:trim(Data),
     case string:split(Trimmed, ":", all) of
@@ -272,16 +271,12 @@ ciclojogo(Player, Sock) ->
             io:format("Received input from ~s: ~s~n", [Player, Data]),
             case get_partida_by_player(Player) of
                 {ok, GameState} ->
-                    %io:format("GameState for ~s: ~p~n", [Player, GameState]),
                     Result = handle_player_input(GameState, Player, Data),
                     case Result of
                         {match_ended, Username} ->
                             io:format("Match ended for ~s, returning to queue handler~n", [Username]),
                             queue_handler(Sock, Username);
                         "NO_ACTION" ->
-                            ciclojogo(Player, Sock);
-                        UpdatedGameState ->
-                            update_partida(GameState#partida.player1, UpdatedGameState),
                             ciclojogo(Player, Sock)
                     end;
                 {error, not_found} ->
@@ -329,7 +324,6 @@ ciclojogo(Player, Sock) ->
     end.
 
 handle_player_input(GameState, PlayerName, Data) ->
-    %io:format("Handling input for Player ~p: ~s~n", [PlayerName, Data]),
     Trimmed = string:trim(Data),
     case string:split(Trimmed, ":", all) of
         ["KEY_PRESS", Key] ->
@@ -340,7 +334,7 @@ handle_player_input(GameState, PlayerName, Data) ->
             "NO_ACTION";
         ["MATCH_FOUND", Username] ->
             io:format("Match found for player ~s~n", [Username]),
-            GameState;
+            "NO_ACTION";
         ["MATCH_ENDED", Username] ->
             io:format("Match ended for player ~s~n", [Username]),
             {match_ended, Username};
@@ -358,14 +352,13 @@ handle_player_input(GameState, PlayerName, Data) ->
                                         velocity = {GameState2#partida.player1ShotSpeed * math:cos(Angle), GameState2#partida.player1ShotSpeed * math:sin(Angle)},
                                         owner = PlayerName
                                     },
-                                    NewGameState = GameState2#partida{
-                                        projectiles = [NewProjectile | GameState2#partida.projectiles],
-                                        player1LastShot = erlang:monotonic_time(millisecond)
-                                    },
-                                    NewGameState;
+                                    NewProjectiles = [NewProjectile | GameState2#partida.projectiles],
+                                    update_projectiles(PlayerName, NewProjectiles),
+                                    update_last_shot(PlayerName, erlang:monotonic_time(millisecond)),
+                                    "NO_ACTION";
                                 false ->
                                     io:format("Shot cooldown for player ~s~n", [PlayerName]),
-                                    GameState2
+                                    "NO_ACTION"
                             end;
                         Player when Player == GameState2#partida.player2 ->
                             case erlang:monotonic_time(millisecond) - GameState2#partida.player2LastShot > GameState2#partida.player2ShotCooldown of
@@ -375,23 +368,22 @@ handle_player_input(GameState, PlayerName, Data) ->
                                         velocity = {GameState2#partida.player2ShotSpeed * math:cos(Angle), GameState2#partida.player2ShotSpeed * math:sin(Angle)},
                                         owner = PlayerName
                                     },
-                                    NewGameState = GameState2#partida{
-                                        projectiles = [NewProjectile | GameState2#partida.projectiles],
-                                        player2LastShot = erlang:monotonic_time(millisecond)
-                                    },
-                                    NewGameState;
+                                    NewProjectiles = [NewProjectile | GameState2#partida.projectiles],
+                                    update_projectiles(PlayerName, NewProjectiles),
+                                    update_last_shot(PlayerName, erlang:monotonic_time(millisecond)),
+                                    "NO_ACTION";
                                 false ->
                                     io:format("Shot cooldown for player ~s~n", [PlayerName]),
-                                    GameState2
+                                    "NO_ACTION"
                             end
                     end;
                 {error, not_found} ->
                     io:format("No partida found for player ~s when launching projectile~n", [PlayerName]),
-                    GameState
+                    "NO_ACTION"
             end;
         _ ->
             io:format("Unknown input: ~s~n", [Data]),
-            GameState
+            "NO_ACTION"
     end.
 
 update_key_state(GameState, PlayerName, Key, press) ->
@@ -446,10 +438,6 @@ speed_limit(Vel, Max, Min) ->
         true ->
             Vel
     end.
-
-calculate_acceleration(Acc, AccAmount) ->
-    NewAcc = speed_limit(Acc + AccAmount, ?MAX_SPEED, -?MAX_SPEED),
-    {NewAcc}.
 
 calculate_playerPosition(Username) ->
     case get_partida_by_player(Username) of
@@ -581,7 +569,6 @@ decay_modificadores_aplicados(Username) ->
     end.
 
 gestorPartidas(Username1) ->
-    %io:format("GestorPartidas called for ~s~n", [Username1]),
     Partida = get_partida_by_player(Username1),
     case Partida of
         {ok, P} ->
@@ -601,7 +588,6 @@ gestorPartidas(Username1) ->
                 _ ->
                     P1Keys = P#partida.player1_keys,
                     P2Keys = P#partida.player2_keys,
-                    %io:format("P1Keys: ~p\nP2Keys: ~p" ,[P1Keys,P2Keys]),
                     apply_held_keys(P, P1Keys, P2Keys),
                     calculate_playerPosition(Username1),
 
@@ -644,7 +630,6 @@ format_modificadores(Modificadores) ->
     lists:flatmap(fun(Mod) ->
         {X, Y} = Mod#modificador.position,
         Type = Mod#modificador.type,
-        % Extract just X,Y,Type and flatten into single list
         [io_lib:format("~p", [X]), ",", 
          io_lib:format("~p", [Y]), ",",
          io_lib:format("~p", [Type]), ","]
@@ -695,7 +680,8 @@ check_collisions(Username) ->
                     update_acceleration(Partida#partida.player1, {0, 0}),
                     update_acceleration(Partida#partida.player2, {0, 0}),
                     update_score(Partida#partida.player2, Partida#partida.player2Score + 2),
-                    update_projectiles(Partida#partida.player1, []);
+                    update_projectiles(Partida#partida.player2, []),
+                    update_keys(Partida#partida.player2, []);
                 _ when P2X < Wall + ?PLAYER_RADIUS; P2X > ArenaW - Wall - ?PLAYER_RADIUS; P2Y < Wall + ?PLAYER_RADIUS; P2Y > ArenaH - ?PLAYER_RADIUS ->
                     update_position(Partida#partida.player1, {100,300}),
                     update_position(Partida#partida.player2, {700,300}),
@@ -703,8 +689,9 @@ check_collisions(Username) ->
                     update_speed(Partida#partida.player2, {0, 0}),
                     update_acceleration(Partida#partida.player1, {0, 0}),
                     update_acceleration(Partida#partida.player2, {0, 0}),
-                    update_score(Partida#partida.player1, Partida#partida.player2Score + 2),
-                    update_projectiles(Partida#partida.player1, []);
+                    update_score(Partida#partida.player1 + 2, Partida#partida.player2Score),
+                    update_projectiles(Partida#partida.player1, []),
+                    update_keys(Partida#partida.player1, []);
                 true ->
                     % Checar colisão dos jogadores com modificadores
                     lists:foreach(

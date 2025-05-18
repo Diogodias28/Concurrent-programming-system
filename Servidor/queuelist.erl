@@ -9,15 +9,15 @@ start() ->
 
 loop(Queue) ->
     receive
-        {add, From, User, Level, Socket} ->  % Adicione Socket como parâmetro
+        {add, From, User, Level, Socket} -> 
             case user_in_queue(User, Queue) of
                 true ->
                     From ! {response, already_queued},
                     loop(Queue);
                 false ->
-                    NewQueue = queue:in({User, Level, Socket}, Queue),  % Armazene o socket
+                    NewQueue = queue:in({User, Level, Socket}, Queue),
                     case try_match(NewQueue) of
-                        {matched, U1, S1, U2, S2, RemainingQueue} ->  % Retorne ambos os sockets
+                        {matched, U1, S1, U2, S2, RemainingQueue} ->
                             From ! {response, {matched, U1, S1, U2, S2}},
                             loop(RemainingQueue);
                         no_match ->
@@ -35,7 +35,7 @@ loop(Queue) ->
     end.
 
 add_to_queue(User, Level, Socket) ->
-    global_queue ! {add, self(), User, Level, Socket},  % Adicione Socket
+    global_queue ! {add, self(), User, Level, Socket}, 
     receive
         {response, Res} -> Res
     after 5000 -> timeout
@@ -55,7 +55,7 @@ remove_from_queue(User) ->
     after 5000 -> timeout
     end.
 
-% Helper functions
+
 user_in_queue(User, Queue) ->
     lists:keymember(User, 1, queue:to_list(Queue)).
 
@@ -63,11 +63,11 @@ remove_user(User, Queue) ->
     Filtered = lists:filter(fun({U, _, _}) -> U =/= User end, queue:to_list(Queue)),
     queue:from_list(Filtered).
 
-% In queuelist.erl, modify the try_match function
+
 try_match(Queue) ->
     QList = queue:to_list(Queue),
     case find_match(QList) of
-        {P1, L1, S1, P2, L2, S2} ->
+        {P1, _, S1, P2, _, S2} ->
             Filtered = lists:filter(fun({U, _, _}) -> U =/= P1 andalso U =/= P2 end, QList),
             {matched, P1, S1, P2, S2, queue:from_list(Filtered)};
         none ->
