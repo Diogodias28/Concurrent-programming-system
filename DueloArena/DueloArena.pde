@@ -78,7 +78,6 @@ public class DueloArena extends PApplet {
     Button gameOverOkButton;
     
     int player1Score = 0, player2Score = 0;
-    int nextProjectileId = 0;
     
     // UI elements
     Button queueButton;
@@ -88,9 +87,18 @@ public class DueloArena extends PApplet {
     Button submitCreateButton;
     Button logoutButton;
     Button deleteAccountButton;
-
-    // Object[]: [id(float), owner(String), x(float), y(float), vx(float), vy(float)]
-    ArrayList<Object[]> projectiles = new ArrayList<>();
+    
+    class Projectile {
+      public float x,y;
+      public String owner;
+      public Projectile(float x, float y, String owner) {
+        this.x = x;
+        this.y = y;
+        this.owner = owner;
+      }
+    }
+    
+    ArrayList<Projectile> projectiles = new ArrayList<>();
     
     public void settings() {
         size(ARENA_WIDTH, ARENA_HEIGHT + GUI_HEIGHT);
@@ -165,18 +173,46 @@ public class DueloArena extends PApplet {
         }
     }
     
+    void parseProjectiles(String projData) {
+        projectiles.clear();
+        
+        // Clean the input string
+        String clean = projData.replaceAll("\\s+", "")
+                             .replace("\"", "")
+                             .replace("[", "")
+                             .replace("]", "");
+        
+        if (clean.isEmpty()) return;
+        
+        // Split into components
+        String[] parts = clean.split(",");
+        
+        // Parse components in groups of 3 (x,y,owner)
+        for (int i = 0; i < parts.length - 2; i += 3) {
+            try {
+                float x = Float.parseFloat(parts[i]);
+                float y = Float.parseFloat(parts[i+1]);
+                String owner = parts[i+2];
+                projectiles.add(new Projectile(x, y, owner));
+            } catch (NumberFormatException e) {
+                System.err.println("Error parsing projectile at index " + i);
+            }
+        }
+    }
+
    void handleServerMessage(String message) {
         println("Server message: " + message);
         
         if (message.startsWith("MATCHED")) {
-            String[] parts = message.split(" ");
-            if (parts.length >= 2) {
-                out.println("MATCH_FOUND:" + loggedInUsername);
-                opponentUsername = parts[1];
-                isPlayer1 = !opponentUsername.equals(loggedInUsername);
-                currentState = STATE_GAME;
-                resetGamePositions();
-            }
+          String[] parts = message.split(" ");
+          if (parts.length >= 3) {
+              // First username in MATCHED message is always player1 (blue)
+              isPlayer1 = parts[1].equals(loggedInUsername);
+              opponentUsername = isPlayer1 ? parts[2] : parts[1];
+              out.println("MATCH_FOUND:" + loggedInUsername);
+              currentState = STATE_GAME;
+              resetGamePositions();
+          }
         }
         else if (message.startsWith("GAME_OVER:")) {
             winnerMessage = message.substring("GAME_OVER:".length()).trim();
@@ -251,59 +287,42 @@ public class DueloArena extends PApplet {
                 }
             }
 
-            if (gameState.containsKey("PROJ")) {  
-                projectiles.clear(); // Full update from server
-                String[] projList = gameState.get("PROJ").split(",");
-                for (String projStr : projList) {
-                    String[] projParts = projStr.split(";");
-                    if (projParts.length == 6) {
-                        try {
-                            int id = Integer.parseInt(projParts[0]);
-                            String owner = projParts[1];
-                            float x = Float.parseFloat(projParts[2]);
-                            float y = Float.parseFloat(projParts[3]);
-                            float vx = Float.parseFloat(projParts[4]);
-                            float vy = Float.parseFloat(projParts[5]);
-                        } catch (NumberFormatException e) {
-                            println("Error parsing projectile: " + e);
-                        }
-                    }
-                }
-            }
+          if (message.contains("PROJ:")) {
+              String projData = message.substring(message.indexOf("PROJ:") + 5, 
+                                               message.indexOf("|TIME:"));
+              parseProjectiles(projData);
+          }
         }
     }
     
-    void drawGameScreen() {
+   void drawGameScreen() {
         // Draw GUI
         drawGameGUI();
         
         // Draw arena walls
         drawArena();
         
-        // Draw players
-        fill(0, 0, 255); // Blue player
-        ellipse(playerX, playerY, PLAYER_SIZE, PLAYER_SIZE);
+        // Determine which positions correspond to which player
+        float blueX = isPlayer1 ? playerX : opponentX;
+        float blueY = isPlayer1 ? playerY : opponentY;
+        float redX = isPlayer1 ? opponentX : playerX;
+        float redY = isPlayer1 ? opponentY : playerY;
         
-        fill(255, 0, 0); // Red opponent
-        ellipse(opponentX, opponentY, PLAYER_SIZE, PLAYER_SIZE);
+        // Draw players with fixed colors
+        fill(0, 0, 255); // Blue for player1
+        ellipse(blueX, blueY, PLAYER_SIZE, PLAYER_SIZE);
         
-        for (Object[] p : projectiles) {
-            // Atualiza posição
-            float x = (float)p[2];
-            float y = (float)p[3];
-            float vx = (float)p[4];
-            float vy = (float)p[5];
-
-            x += vx;
-            y += vy;
-
-            // Atualiza no array
-            p[2] = x;
-            p[3] = y;
-
-            // Renderiza
-            fill(0, 255, 0); // Verde
-            ellipse(x, y, PROJ_SIZE, PROJ_SIZE);
+        fill(255, 0, 0); // Red for player2
+        ellipse(redX, redY, PLAYER_SIZE, PLAYER_SIZE);
+        
+        // Draw projectiles
+        for (Projectile p : projectiles) {
+            if (p.owner.equals(isPlayer1 ? loggedInUsername : opponentUsername)) {
+                fill(0, 0, 255); // Blue for player1's projectiles
+            } else {
+                fill(255, 0, 0); // Red for player2's projectiles
+            }
+            ellipse(p.x, p.y + GUI_HEIGHT, PROJ_SIZE, PROJ_SIZE);
         }
     }
     
@@ -330,20 +349,23 @@ public class DueloArena extends PApplet {
           textAlign(LEFT, CENTER);
           textSize(16);
           
-          // Player 1 (you) info
-          fill(0);
-          text("You: " + loggedInUsername, 20, GUI_HEIGHT/3);
+          // Player 1 (blue) info - always left
+          fill(0, 0, 255); // Blue
+          String p1Name = isPlayer1 ? loggedInUsername : opponentUsername;
+          text("Player 1: " + p1Name, 20, GUI_HEIGHT/3);
           textSize(24);
           text(str(player1Score), 20, 2*GUI_HEIGHT/3);
           
-          // Player 2 (opponent) info
+          // Player 2 (red) info - always right
+          fill(255, 0, 0); // Red
           textAlign(RIGHT, CENTER);
-          textSize(16);
-          text("Opponent: " + opponentUsername, width - 20, GUI_HEIGHT/3);
+          String p2Name = isPlayer1 ? opponentUsername : loggedInUsername;
+          text("Player 2: " + p2Name, width - 20, GUI_HEIGHT/3);
           textSize(24);
           text(str(player2Score), width - 20, 2*GUI_HEIGHT/3);
           
           // Timer in center top
+          fill(0); // Black for timer
           textAlign(CENTER, CENTER);
           textSize(32);
           
@@ -663,7 +685,6 @@ public class DueloArena extends PApplet {
                 handleQueueScreenClick();
                 break;
             case STATE_GAME:
-                // Your game mouse handling
                 handleProjectilesLaunchClick();
                 break;
             case STATE_GAME_OVER:
@@ -826,34 +847,19 @@ public class DueloArena extends PApplet {
         }
     }
 
-    void handleProjectilesLaunchClick() {
-        if (connected && out != null) {
-            float centerX = playerX;
-            float centerY = playerY;
-
-            float dx = mouseX - centerX;
-            float dy = mouseY - centerY;
-            float angle = atan2(dy, dx);
-
-            // Normalize
-            float magnitude = sqrt(dx*dx + dy*dy);
-            if (magnitude == 0) return;
-            float vx = (dx / magnitude) * 8;
-            float vy = (dy / magnitude) * 8;
-            int id = nextProjectileId++;
-            
-            out.println(String.format("LAUNCH_PROJ:%d:%s:%.2f:%.2f:%.2f:%.2f", 
-                                        id, 
-                                        loggedInUsername, 
-                                        centerX, 
-                                        centerY, 
-                                        vx, 
-                                        vy));
-
-            //projectiles.add(new Object[]{(float) id, loggedInUsername, centerX, centerY, vx, vy});
-
-        }
-    }
+      void handleProjectilesLaunchClick() {
+          if (connected && out != null) {
+              // Use our own position (playerX/Y) since that's always correct for our player
+              float centerX = playerX;
+              float centerY = playerY;
+      
+              float dx = mouseX - centerX;
+              float dy = mouseY - centerY;
+              float angle = atan2(dy, dx);
+      
+              out.println(String.format("LAUNCH_PROJ:%.2f", angle));
+          }
+      }
     
     void attemptConnection() {
         if (inputIP.isEmpty() || inputPort.isEmpty()) {
