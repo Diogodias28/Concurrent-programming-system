@@ -4,7 +4,7 @@
 -import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0, remove_from_queue/1]).
 -import(partidas, [add_partida/1, get_partidas/0, update_partida/2, remove_partida/1, get_partida_by_player/1]).
 -include("partida.hrl").
--export([start/1, authenticator/1, parse_auth_input/1]).
+-export([start/1, authenticator/1, parse_auth_input/1, shutdown_server/0]).
 
 
 -define(FRICTION, 0.98).
@@ -29,6 +29,7 @@ start(Port) ->
     io:format("Starting game server on port ~p~n", [Port]),
     queuelist:start(),
     partidas:start(),
+    socketRegistry:start(),
     case server:start() of
         {ok, _Pid} ->
             io:format("Account server started successfully~n"),
@@ -51,6 +52,7 @@ start(Port) ->
 
 acceptor(LSock) ->
     {ok, Sock} = gen_tcp:accept(LSock),
+    socketRegistry:add(Sock),
     {ok, {IP, Port}} = inet:peername(Sock),
     io:format("New connection from ~p:~p~n", [IP, Port]),
     spawn(fun() -> acceptor(LSock) end),
@@ -80,9 +82,11 @@ authenticator(Sock) ->
             end;
         {tcp_closed, Sock} ->
             io:format("Client from ~p closed connection during auth~n", [IP]),
+            socketRegistry:remove(Sock),
             {error, closed};
         {tcp_error, Sock, Reason} ->
             io:format("Socket error from ~p during auth: ~p~n", [IP, Reason]),
+            socketRegistry:remove(Sock),
             {error, Reason}
     end.
 
@@ -200,10 +204,12 @@ queue_handler(Sock, Player) ->
             end;
         {tcp_closed, Sock} ->
             io:format("Socket closed.~n"),
+            socketRegistry:remove(Sock),
             server:logout(Player),
             ok;
         {tcp_error, Sock, Reason} ->
             io:format("Socket error: ~p~n", [Reason]),
+            socketRegistry:remove(Sock),
             ok
     end.
 
@@ -283,26 +289,35 @@ ciclojogo(Player, Sock) ->
                     end
             end;
         {tcp_closed, Sock} ->
-            case get_partida_by_player(Player) of
-                {ok, GameState} ->
-                    io:format("Player (~s) disconnected~n", [Player]),
-                    OtherPlayer = case Player of
-                        P when P =:= GameState#partida.player1 -> GameState#partida.player2;
-                        P when P =:= GameState#partida.player2 -> GameState#partida.player1
-                    end,
-                    io:format("otherPlayer: ~s~n", [OtherPlayer]),
-                    server:logout(Player),
-                    WinnerNum = case OtherPlayer of
-                        _ when OtherPlayer =:= GameState#partida.player1 -> 1;
-                        _ when OtherPlayer =:= GameState#partida.player2 -> 2
-                    end,
-                    end_game(GameState, WinnerNum);
-                {error, not_found} ->
-                    io:format("No partida found for player ~s after disconnection~n", [Player]),
-                    ok
+            socketRegistry:remove(Sock),
+            % Only process as a "loss" if not shutting down
+            case socketRegistry:is_shutting_down() of
+                true ->
+                    io:format("Server is shutting down, not sending GAME_OVER for ~s~n", [Player]),
+                    ok;
+                false ->
+                    case get_partida_by_player(Player) of
+                        {ok, GameState} ->
+                            io:format("Player (~s) disconnected~n", [Player]),
+                            OtherPlayer = case Player of
+                                P when P =:= GameState#partida.player1 -> GameState#partida.player2;
+                                P when P =:= GameState#partida.player2 -> GameState#partida.player1
+                            end,
+                            io:format("otherPlayer: ~s~n", [OtherPlayer]),
+                            server:logout(Player),
+                            WinnerNum = case OtherPlayer of
+                                _ when OtherPlayer =:= GameState#partida.player1 -> 1;
+                                _ when OtherPlayer =:= GameState#partida.player2 -> 2
+                            end,
+                            end_game(GameState, WinnerNum);
+                        {error, not_found} ->
+                            io:format("No partida found for player ~s after disconnection~n", [Player]),
+                            ok
+                    end
             end;
         {error, _} ->
             io:format("Error in game loop for ~s~n", [Player]),
+            socketRegistry:remove(Sock),
             ciclojogo(Player, Sock)
     end.
 
@@ -997,3 +1012,10 @@ apply_held_keys(Partida, P1Keys, P2Keys) ->
         player1acceleration = {AccX1b, AccY1b},
         player2acceleration = {AccX2b, AccY2b}
     }.
+
+shutdown_server() ->
+    socketRegistry:set_shutdown(true), % Set global shutdown flag
+    io:format("Server is shutting down, notifying all clients...~n"),
+    catch socketRegistry:broadcast("SERVER_SHUTDOWN\n"),
+    timer:sleep(100),
+    init:stop().
