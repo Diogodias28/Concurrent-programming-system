@@ -272,9 +272,9 @@ ciclojogo(Player, Sock) ->
             io:format("Received input from ~s: ~s~n", [Player, Data]),
             case get_partida_by_player(Player) of
                 {ok, GameState} ->
-                    io:format("GameState for ~s: ~p~n", [Player, GameState]),
+                    %io:format("GameState for ~s: ~p~n", [Player, GameState]),
                     UpdatedGameState = handle_player_input(GameState, Player, Data),
-                    io:format("Updated GameState: ~p~n", [UpdatedGameState]),
+                    %io:format("Updated GameState: ~p~n", [UpdatedGameState]),
                     update_partida(GameState#partida.player1, UpdatedGameState),
                     ciclojogo(Player, Sock);
                 {error, not_found} ->
@@ -322,19 +322,13 @@ ciclojogo(Player, Sock) ->
     end.
 
 handle_player_input(GameState, PlayerName, Data) ->
-    io:format("Handling input for Player ~p: ~s~n", [PlayerName, Data]),
+    %io:format("Handling input for Player ~p: ~s~n", [PlayerName, Data]),
     Trimmed = string:trim(Data),
     case string:split(Trimmed, ":", all) of
         ["KEY_PRESS", Key] ->
             update_key_state(GameState, PlayerName, string:to_upper(Key), press);
         ["KEY_RELEASE", Key] ->
             update_key_state(GameState, PlayerName, string:to_upper(Key), release);
-        ["PLAYER1SCORE"] ->
-            CurrentScore = GameState#partida.player1Score,
-            NewScore = CurrentScore + 1,
-            io:format("Increasing Player 1 score from ~p to ~p~n", [CurrentScore, NewScore]),
-            UpdatedGameState = GameState#partida{player1Score = NewScore},
-            UpdatedGameState;
         ["MOVE", "UP"] ->
             case partidas:get_partida_by_player(PlayerName) of
                 {ok, NewGameState} ->
@@ -515,22 +509,34 @@ update_key_state(GameState, PlayerName, Key, press) ->
     case PlayerName of
         P when P =:= GameState#partida.player1 ->
             Keys = GameState#partida.player1_keys,
+            io:format("Updating key state for player 1: ~p~n", [Keys]),
+            io:format("Adding key ~p to player 1 keys~n", [Key]),
             NewKeys = lists:usort([Key | Keys]),
+            io:format("New keys for player 1: ~p~n", [NewKeys]),
             GameState#partida{player1_keys = NewKeys};
         P when P =:= GameState#partida.player2 ->
             Keys = GameState#partida.player2_keys,
+            io:format("Updating key state for player 2: ~p~n", [Keys]),
+            io:format("Adding key ~p to player 2 keys~n", [Key]),
             NewKeys = lists:usort([Key | Keys]),
+            io:format("New keys for player 2: ~p~n", [NewKeys]),
             GameState#partida{player2_keys = NewKeys}
     end;
 update_key_state(GameState, PlayerName, Key, release) ->
     case PlayerName of
         P when P =:= GameState#partida.player1 ->
             Keys = GameState#partida.player1_keys,
+            io:format("Updating key state for player 1: ~p~n", [Keys]),
+            io:format("Removing key ~p from player 1 keys~n", [Key]),
             NewKeys = lists:delete(Key, Keys),
+            io:format("New keys for player 1: ~p~n", [NewKeys]),
             GameState#partida{player1_keys = NewKeys};
         P when P =:= GameState#partida.player2 ->
             Keys = GameState#partida.player2_keys,
+            io:format("Updating key state for player 2: ~p~n", [Keys]),
+            io:format("Removing key ~p from player 2 keys~n", [Key]),
             NewKeys = lists:delete(Key, Keys),
+            io:format("New keys for player 2: ~p~n", [NewKeys]),
             GameState#partida{player2_keys = NewKeys}
     end.
 
@@ -693,7 +699,7 @@ gestorPartidas(Username1) ->
                 _ ->
                     P1Keys = P#partida.player1_keys,
                     P2Keys = P#partida.player2_keys,
-                    io:format("P1Keys: ~p\nP2Keys: ~p" ,[P1Keys,P2Keys]),
+                    %io:format("P1Keys: ~p\nP2Keys: ~p" ,[P1Keys,P2Keys]),
                     P2 = apply_held_keys(P, P1Keys, P2Keys),
                     UpdatedPartida = calculate_playerPosition(P2),
 

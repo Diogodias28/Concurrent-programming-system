@@ -5,9 +5,6 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import javax.swing.JOptionPane;
-import processing.awt.PSurfaceAWT;
-import java.awt.event.FocusListener;
-import java.awt.event.FocusEvent;
 
 public class DueloArena extends PApplet {
     // Configurações da arena
@@ -76,6 +73,8 @@ public class DueloArena extends PApplet {
     boolean creatingConfirm = false;
     boolean createAccountError = false;
     String createAccountErrorMessage = "";
+    
+    boolean wasFocused = true;
 
     // Top 10 variables
     String[] top10Lines = {};
@@ -145,10 +144,6 @@ public class DueloArena extends PApplet {
 
         // Initialize player positions
         resetGamePositions();
-        
-        // Add focus listener for key release
-        println("Surface type: " + surface.getNative().getClass().getName());
-        addFocusListenerForKeyRelease();
     }
 
     void resetGamePositions() {
@@ -182,6 +177,19 @@ public class DueloArena extends PApplet {
                 drawQueueScreen();
                 break;
             case STATE_GAME:
+                if (focused != wasFocused) {
+                    if (!focused) {
+                        // Window lost focus
+                        print("lost focus");
+                        if (connected && out != null) {
+                            out.println("KEY_RELEASE:UP"); upPressed = false;
+                            out.println("KEY_RELEASE:DOWN"); downPressed = false;
+                            out.println("KEY_RELEASE:LEFT"); leftPressed = false;
+                            out.println("KEY_RELEASE:RIGHT"); rightPressed = false;
+                        }
+                    }
+                    wasFocused = focused;
+                }
                 drawGameScreen();
                 break;
             case STATE_GAME_OVER:
@@ -526,7 +534,7 @@ public class DueloArena extends PApplet {
 
 
     public void keyPressed() {
-        if (currentState == STATE_GAME) {
+        if (currentState == STATE_GAME && focused) {
             switch (key) {
                 case 'w': case 'W':
                     if (!upPressed) {
@@ -569,7 +577,7 @@ public class DueloArena extends PApplet {
     }
 
     public void keyReleased() {
-        if (currentState == STATE_GAME) {
+        if (currentState == STATE_GAME && focused) {
             switch (key) {
                 case 'w': case 'W':
                     if (upPressed) {
@@ -599,30 +607,6 @@ public class DueloArena extends PApplet {
         }
     }
 
-    // New method to send the current movement state to the server
-    void sendMovementState() {
-        if (connected && out != null) {
-            if (moveUp) out.println("MOVE:UP");
-            else out.println("STOP:UP");
-
-            if (moveDown) out.println("MOVE:DOWN");
-            else out.println("STOP:DOWN");
-
-            if (moveLeft) out.println("MOVE:LEFT");
-            else out.println("STOP:LEFT");
-
-            if (moveRight) out.println("MOVE:RIGHT");
-            else out.println("STOP:RIGHT");
-        }
-    }
-
-    void sendMovementCommand(String key, boolean pressed) {
-        if (connected && out != null) {
-            String command = pressed ? "KEY_PRESS:" : "KEY_RELEASE:";
-            out.println(command + key);
-        }
-    }
-    
     void updatePositionsFromServer() {
         if (connected && in != null) {
             try {
@@ -1295,40 +1279,5 @@ public class DueloArena extends PApplet {
     
     public static void main(String[] args) {
         PApplet.main("DueloArena");
-    }
-
-    public void focusLost(java.awt.event.FocusEvent e) {
-        // Release all keys
-        print("Lost Focus\n");
-        if (upPressed)    { out.println("KEY_RELEASE:UP"); upPressed = false; }
-        if (downPressed)  { out.println("KEY_RELEASE:DOWN"); downPressed = false; }
-        if (leftPressed)  { out.println("KEY_RELEASE:LEFT"); leftPressed = false; }
-        if (rightPressed) { out.println("KEY_RELEASE:RIGHT"); rightPressed = false; }
-    }
-    
-    void addFocusListenerForKeyRelease() {
-        try {
-            // Get the native Processing surface
-            PSurfaceAWT awtSurface = (PSurfaceAWT) surface.getNative();
-            PSurfaceAWT.SmoothCanvas canvas = (PSurfaceAWT.SmoothCanvas) awtSurface.getNative();
-            
-            canvas.addFocusListener(new FocusListener() {
-                public void focusGained(FocusEvent e) {}
-                
-                public void focusLost(FocusEvent e) {
-                    println("Focus lost - releasing keys");
-                    if (connected && out != null) {
-                        if (upPressed)    { out.println("KEY_RELEASE:UP"); upPressed = false; }
-                        if (downPressed)  { out.println("KEY_RELEASE:DOWN"); downPressed = false; }
-                        if (leftPressed)  { out.println("KEY_RELEASE:LEFT"); leftPressed = false; }
-                        if (rightPressed) { out.println("KEY_RELEASE:RIGHT"); rightPressed = false; }
-                    }
-                }
-            });
-            println("Focus listener successfully added");
-        } catch (Exception e) {
-            println("Error adding focus listener: " + e);
-            e.printStackTrace();
-        }
     }
 }
