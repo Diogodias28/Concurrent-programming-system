@@ -1,6 +1,7 @@
 [{"Diogo",{"password10",false,5,1}},
  {"Lipe",{"Gamer",false,5,-1}},
  {"Loren",{"NotGamer",false,1,0}},
+ {"gamer123",{"123456",false,1,0}},
  {"ola",{"ola1234",false,1,-1}},
  {"test",{"test123",false,3,2}},
  {"teste",{"teste",false,9,1}},

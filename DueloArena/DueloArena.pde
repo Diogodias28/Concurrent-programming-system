@@ -282,7 +282,6 @@ public class DueloArena extends PApplet {
         }
         else if (message.startsWith("TOP_10:")) {
             String top10Raw = message.substring(7).trim();
-            out.println("DEBUG: [" + message + "]");
             if (top10Raw.isEmpty() || top10Raw.equals("EMPTY")) {
                 top10Lines = new String[] { "Sem dados de Top 10." };
             } else {
@@ -757,6 +756,7 @@ public class DueloArena extends PApplet {
         // Player name
         textAlign(LEFT, CENTER);
         textSize(16);
+
         text("Player: " + loggedInUsername, width - 240, 110);
         
         // Level with icon
@@ -1088,10 +1088,13 @@ public class DueloArena extends PApplet {
             
             try {
                 String response = in.readLine();
+                print(response + "\n");
                 if ("ACCOUNT_CREATED".equals(response)) {
                     // Server will automatically attempt login
                     String loginResponse = in.readLine();
+                    print(loginResponse + "\n");
                     if ("LOGIN_SUCCESS".equals(loginResponse)) {
+                        loggedInUsername = newUsername;
                         currentState = STATE_QUEUE;
                         createAccountError = false;
                         loginError = false;
