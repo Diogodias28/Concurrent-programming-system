@@ -2,7 +2,7 @@
 -import(gen_tcp, [listen/2]).
 -import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0, get_player_level/1, get_player_streak/1, update_account_stats/4,top_10/0, updateStats/3]).
 -import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0, remove_from_queue/1]).
--import(partidas, [add_partida/1, get_partidas/0, update_partida/2, remove_partida/1, get_partida_by_player/1]).
+-import(partidas, [add_partida/1, get_partidas/0, update_partida/2, remove_partida/1, get_partida_by_player/1,update_player_keys_in_partida/2]).
 -include("partida.hrl").
 -export([start/1, authenticator/1, parse_auth_input/1, shutdown_server/0]).
 
@@ -273,10 +273,17 @@ ciclojogo(Player, Sock) ->
             case get_partida_by_player(Player) of
                 {ok, GameState} ->
                     %io:format("GameState for ~s: ~p~n", [Player, GameState]),
-                    UpdatedGameState = handle_player_input(GameState, Player, Data),
-                    %io:format("Updated GameState: ~p~n", [UpdatedGameState]),
-                    update_partida(GameState#partida.player1, UpdatedGameState),
-                    ciclojogo(Player, Sock);
+                    Result = handle_player_input(GameState, Player, Data),
+                    case Result of
+                        {match_ended, Username} ->
+                            io:format("Match ended for ~s, returning to queue handler~n", [Username]),
+                            queue_handler(Sock, Username);
+                        "NO_ACTION" ->
+                            ciclojogo(Player, Sock);
+                        UpdatedGameState ->
+                            update_partida(GameState#partida.player1, UpdatedGameState),
+                            ciclojogo(Player, Sock)
+                    end;
                 {error, not_found} ->
                     % Se o comando for MATCH_ENDED, retorna para a fila
                     case string:split(string:trim(Data), ":", all) of
@@ -326,129 +333,11 @@ handle_player_input(GameState, PlayerName, Data) ->
     Trimmed = string:trim(Data),
     case string:split(Trimmed, ":", all) of
         ["KEY_PRESS", Key] ->
-            update_key_state(GameState, PlayerName, string:to_upper(Key), press);
+            update_key_state(GameState, PlayerName, string:to_upper(Key), press),
+            "NO_ACTION";
         ["KEY_RELEASE", Key] ->
-            update_key_state(GameState, PlayerName, string:to_upper(Key), release);
-        ["MOVE", "UP"] ->
-            case partidas:get_partida_by_player(PlayerName) of
-                {ok, NewGameState} ->
-                    UpdatedGameState =
-                        case PlayerName == NewGameState#partida.player1 of
-                            true ->
-                                {NewAcc} = calculate_acceleration(
-                                    element(2, NewGameState#partida.player1acceleration),
-                                    -?ACCELERATION_INCREMENT
-                                ),
-                                NewGameState#partida{
-                                    player1acceleration = {element(1, NewGameState#partida.player1acceleration), NewAcc}
-                                };
-                            false when PlayerName == NewGameState#partida.player2 ->
-                                {NewAcc} = calculate_acceleration(
-                                    element(2, NewGameState#partida.player2acceleration),
-                                    -?ACCELERATION_INCREMENT
-                                ),
-                                NewGameState#partida{
-                                    player2acceleration = {element(1, NewGameState#partida.player2acceleration), NewAcc}
-                                }
-                        end,
-                    UpdatedGameState;
-                {error, not_found} ->
-                    io:format("No partida found for player ~s~n", [PlayerName]),
-                    GameState
-            end;
-        ["MOVE", "DOWN"] ->
-            case partidas:get_partida_by_player(PlayerName) of
-                {ok, NewGameState} ->
-                    UpdatedGameState =
-                        case PlayerName == NewGameState#partida.player1 of
-                            true ->
-                                {NewAcc} = calculate_acceleration(
-                                    element(2, NewGameState#partida.player1acceleration),
-                                    ?ACCELERATION_INCREMENT
-                                ),
-                                NewGameState#partida{
-                                    player1acceleration = {element(1, NewGameState#partida.player1acceleration), NewAcc}
-                                };
-                            false when PlayerName == NewGameState#partida.player2 ->
-                                {NewAcc} = calculate_acceleration(
-                                    element(2, NewGameState#partida.player2acceleration),
-                                    ?ACCELERATION_INCREMENT
-                                ),
-                                NewGameState#partida{
-                                    player2acceleration = {element(1, NewGameState#partida.player2acceleration), NewAcc}
-                                }
-                        end,
-                    UpdatedGameState;
-                {error, not_found} ->
-                    io:format("No partida found for player ~s~n", [PlayerName]),
-                    GameState
-            end;
-        ["MOVE", "LEFT"] ->
-            case partidas:get_partida_by_player(PlayerName) of
-                {ok, NewGameState} ->
-                    UpdatedGameState =
-                        case PlayerName == NewGameState#partida.player1 of
-                            true ->
-                                {NewAcc} = calculate_acceleration(
-                                    element(1, NewGameState#partida.player1acceleration),
-                                    -?ACCELERATION_INCREMENT
-                                ),
-                                NewGameState#partida{
-                                    player1acceleration = {NewAcc,element(2, NewGameState#partida.player1acceleration)}
-                                };
-                            false when PlayerName == NewGameState#partida.player2 ->
-                                {NewAcc} = calculate_acceleration(
-                                    element(1, NewGameState#partida.player2acceleration),
-                                    -?ACCELERATION_INCREMENT
-                                ),
-                                NewGameState#partida{
-                                    player2acceleration = {NewAcc,element(2, NewGameState#partida.player2acceleration)}
-                                }
-                        end,
-                    UpdatedGameState;
-                {error, not_found} ->
-                    io:format("No partida found for player ~s~n", [PlayerName]),
-                    GameState
-            end;
-        ["MOVE", "RIGHT"] -> 
-            case partidas:get_partida_by_player(PlayerName) of
-                {ok, NewGameState} ->
-                    UpdatedGameState =
-                        case PlayerName == NewGameState#partida.player1 of
-                            true ->
-                                {NewAcc} = calculate_acceleration(
-                                    element(1, NewGameState#partida.player1acceleration),
-                                    ?ACCELERATION_INCREMENT
-                                ),
-                                NewGameState#partida{
-                                    player1acceleration = {NewAcc,element(2, NewGameState#partida.player1acceleration)}
-                                };
-                            false when PlayerName == NewGameState#partida.player2 ->
-                                {NewAcc} = calculate_acceleration(
-                                    element(1, NewGameState#partida.player2acceleration),
-                                    ?ACCELERATION_INCREMENT
-                                ),
-                                NewGameState#partida{
-                                    player2acceleration = {NewAcc,element(2, NewGameState#partida.player2acceleration)}
-                                }
-                        end,
-                    UpdatedGameState;
-                {error, not_found} ->
-                    io:format("No partida found for player ~s~n", [PlayerName]),
-                    GameState
-            end;
-        ["STOP", "UP"] -> 
-            io:format("Stopping UP for player ~s~n", [PlayerName]),
-            GameState;
-        ["STOP", "DOWN"] -> 
-            io:format("Stopping DOWN for player ~s~n", [PlayerName]),
-            GameState;
-        ["STOP", "LEFT"] -> 
-            io:format("Stopping LEFT for player ~s~n", [PlayerName]),
-            GameState;
-        ["STOP", "RIGHT"] -> 
-            io:format("Stopping RIGHT for player ~s~n", [PlayerName]),
-            GameState;
+            update_key_state(GameState, PlayerName, string:to_upper(Key), release),
+            "NO_ACTION";
         ["MATCH_FOUND", Username] ->
             io:format("Match found for player ~s~n", [Username]),
             GameState;
@@ -513,14 +402,14 @@ update_key_state(GameState, PlayerName, Key, press) ->
             io:format("Adding key ~p to player 1 keys~n", [Key]),
             NewKeys = lists:usort([Key | Keys]),
             io:format("New keys for player 1: ~p~n", [NewKeys]),
-            GameState#partida{player1_keys = NewKeys};
+            update_player_keys_in_partida(GameState#partida.player1, NewKeys);
         P when P =:= GameState#partida.player2 ->
             Keys = GameState#partida.player2_keys,
             io:format("Updating key state for player 2: ~p~n", [Keys]),
             io:format("Adding key ~p to player 2 keys~n", [Key]),
             NewKeys = lists:usort([Key | Keys]),
             io:format("New keys for player 2: ~p~n", [NewKeys]),
-            GameState#partida{player2_keys = NewKeys}
+            update_player_keys_in_partida(GameState#partida.player2, NewKeys)
     end;
 update_key_state(GameState, PlayerName, Key, release) ->
     case PlayerName of
@@ -530,14 +419,14 @@ update_key_state(GameState, PlayerName, Key, release) ->
             io:format("Removing key ~p from player 1 keys~n", [Key]),
             NewKeys = lists:delete(Key, Keys),
             io:format("New keys for player 1: ~p~n", [NewKeys]),
-            GameState#partida{player1_keys = NewKeys};
+            update_player_keys_in_partida(GameState#partida.player1, NewKeys);
         P when P =:= GameState#partida.player2 ->
             Keys = GameState#partida.player2_keys,
             io:format("Updating key state for player 2: ~p~n", [Keys]),
             io:format("Removing key ~p from player 2 keys~n", [Key]),
             NewKeys = lists:delete(Key, Keys),
             io:format("New keys for player 2: ~p~n", [NewKeys]),
-            GameState#partida{player2_keys = NewKeys}
+            update_player_keys_in_partida(GameState#partida.player2, NewKeys)
     end.
 
 calculate_velocity(SpeedX, SpeedY, {AccX, AccY}) ->
