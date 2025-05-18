@@ -1,6 +1,6 @@
 -module(game).
 -import(gen_tcp, [listen/2]).
--import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0, get_player_level/1, get_player_streak/1]).
+-import(server,[create_account/2, login/2, close_account/2, logout/1, start/0, online/0, get_player_level/1, get_player_streak/1, update_account_stats/4,top_10/0, updateStats/3]).
 -import(queuelist, [add_to_queue/2, get_queue/0, startqueue/0, remove_from_queue/1]).
 -import(partidas, [add_partida/1, get_partidas/0, update_partida/2, remove_partida/1, get_partida_by_player/1]).
 -include("partida.hrl").
@@ -191,6 +191,11 @@ queue_handler(Sock, Player) ->
                             gen_tcp:send(Sock, "ACCOUNT_CLOSURE_FAILED\n"),
                             queue_handler(Sock, Player)
                     end;
+                {top_10, Username} ->
+                    io:format("Top 10 players requested by ~s~n", [Username]),
+                    Top10Str = server:top_10(),
+                    gen_tcp:send(Sock, "TOP_10:" ++ Top10Str ++ "\n"),
+                    queue_handler(Sock, Player);
                 {error, _} ->
                     io:format("Invalid queue command: ~s~n", [Data]),
                     gen_tcp:send(Sock, "INVALID_QUEUE_COMMAND\n"),
@@ -219,6 +224,8 @@ parse_queue_input(Data) ->
             {logout, string:trim(Username)};
         ["CLOSE_ACCOUNT", Username, Password] ->
             {close_account, string:trim(Username), string:trim(Password)};
+        ["TOP_10", Username] ->
+            {top_10, string:trim(Username)};
         _ ->
             {error, "Invalid queue command"}
     end.

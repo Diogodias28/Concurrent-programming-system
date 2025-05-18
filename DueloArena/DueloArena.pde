@@ -74,6 +74,10 @@ public class DueloArena extends PApplet {
     boolean createAccountError = false;
     String createAccountErrorMessage = "";
 
+    // Top 10 variables
+    String[] top10Lines = {};
+    boolean showTop10 = false;
+
     String winnerMessage = "";
     Button gameOverOkButton;
     
@@ -88,6 +92,7 @@ public class DueloArena extends PApplet {
     Button submitCreateButton;
     Button logoutButton;
     Button deleteAccountButton;
+    Button top10Button;
 
     // Object[]: [id(float), owner(String), x(float), y(float), vx(float), vy(float)]
     ArrayList<Object[]> projectiles = new ArrayList<>();
@@ -106,7 +111,8 @@ public class DueloArena extends PApplet {
         gameOverOkButton = new Button(width/2 - 75, height/2 + 50, 150, 40, "OK", color(0, 150, 0), color(255));
         logoutButton = new Button(width/2 - 100, height/2 + 50, 200, 40, "Logout", color(200, 0, 0), color(255));
         deleteAccountButton = new Button(width/2 - 100, height/2 + 100, 200, 40, "Delete Account", color(150, 0, 0), color(255));
-        
+        top10Button = new Button(width/2 - 100, height/2 + 150, 200, 40, "Top 10", color(0, 0, 200), color(255));
+
         // Initialize player positions
         resetGamePositions();
     }
@@ -145,8 +151,8 @@ public class DueloArena extends PApplet {
                 drawGameScreen();
                 break;
             case STATE_GAME_OVER:
-            drawGameOverScreen();
-            break;
+                drawGameOverScreen();
+                break;
         }
     }
       
@@ -270,6 +276,16 @@ public class DueloArena extends PApplet {
                     }
                 }
             }
+        }
+        else if (message.startsWith("TOP_10:")) {
+            String top10Raw = message.substring(7).trim();
+            out.println("DEBUG: [" + message + "]");
+            if (top10Raw.isEmpty() || top10Raw.equals("EMPTY")) {
+                top10Lines = new String[] { "Sem dados de Top 10." };
+            } else {
+                top10Lines = top10Raw.split("\\|\\|");
+            }
+            showTop10 = true;
         }
     }
     
@@ -614,9 +630,16 @@ public class DueloArena extends PApplet {
         // Draw logout and delete account buttons (unchanged)
         logoutButton.display();
         deleteAccountButton.display();
+
+        // Draw top 10 button
+        top10Button.display();
     
         // Player stats panel on the right side
         drawPlayerStatsPanel();
+
+        if (showTop10) {
+            drawTop10Screen();
+        }
     }
     
     void drawPlayerStatsPanel() {
@@ -646,6 +669,25 @@ public class DueloArena extends PApplet {
         
         // Reset fill color
         fill(0);
+    }
+
+    void drawTop10Screen() {
+        fill(255, 240);
+        rect(width/2 - 220, height/2 - 180, 440, 360, 16);
+        fill(0);
+        textAlign(CENTER, TOP);
+        textSize(28);
+        text("Top 10 Jogadores", width/2, height/2 - 160);
+        textSize(18);
+        for (int i = 0; i < top10Lines.length; i++) {
+            text((i+1) + ". " + top10Lines[i], width/2, height/2 - 120 + i*28);
+        }
+        // Botão para fechar
+        fill(200,0,0);
+        rect(width/2 + 160, height/2 - 170, 40, 40, 10);
+        fill(255);
+        textSize(24);
+        text("X", width/2 + 180, height/2 - 155);
     }
         
     public void mousePressed() {
@@ -767,6 +809,14 @@ public class DueloArena extends PApplet {
     }
     
     void handleQueueScreenClick() {
+        if (showTop10) {
+            // Se clicar no X fecha o painel
+            if (mouseX > width/2 + 160 && mouseX < width/2 + 200 &&
+                mouseY > height/2 - 170 && mouseY < height/2 - 130) {
+                showTop10 = false;
+                return;
+            }
+        }
         if (queueButton.isMouseOver()) {
             inQueue = !inQueue;
             queueButton.text = inQueue ? "Leave Queue" : "Enter Queue";
@@ -822,6 +872,11 @@ public class DueloArena extends PApplet {
                         println("Error during account deletion: " + e.getMessage());
                     }
                 }
+            }
+        }
+        else if (top10Button.isMouseOver()) {
+            if (connected) {
+            out.println("TOP_10:" + loggedInUsername);
             }
         }
     }

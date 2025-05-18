@@ -164,9 +164,9 @@ loop({Map, Queue}) ->
                 end,
                 maps:to_list(Map)
             ),
-            Top10 = lists:sublist(Top10, 10),
-            save_top10(Top10),
-            Pid ! Top10,
+            Top10List = lists:sublist(Top10, 10),
+            Top10Str = format_top10(Top10List),
+            Pid ! Top10Str,
             loop({Map, Queue});
 
         % Apenas para testar o top10
@@ -198,5 +198,12 @@ save_accounts(Map) ->
 logout_account() ->
     file:write_file("../DueloArena/Login.txt", "").
 
-save_top10(Top10List) ->
-    file:write_file("../DueloArena/Top10.txt", io_lib:format("~p.", [Top10List])).
+format_top10(Top10List) ->
+    Formatted =
+        lists:map(
+            fun({User, {_, _, Level, Streak}}) ->
+                io_lib:format("~s | Nível: ~p | Streak: ~p", [User, Level, Streak])
+            end,
+            Top10List
+        ),
+    string:join([lists:flatten(Line) || Line <- Formatted], "||").
