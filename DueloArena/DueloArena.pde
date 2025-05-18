@@ -28,9 +28,6 @@ public class DueloArena extends PApplet {
     final int STATE_GAME = 5;
     final int STATE_GAME_OVER = 6;
     int currentState = STATE_IP_INPUT;
-    int gameTime = 0;
-    int playerLevel = 1;
-    int playerStreak = 0;
     
     // Connection variables
     String serverIP = "";
@@ -56,6 +53,12 @@ public class DueloArena extends PApplet {
     boolean moveDown = false;
     boolean moveLeft = false;
     boolean moveRight = false;
+    boolean wasFocused = true;
+    int gameTime = 0;
+    int playerLevel = 1;
+    int playerStreak = 0;
+    int player1Score = 0, player2Score = 0;
+    String winnerMessage = "";
     
     // Login screen variables
     String username = "";
@@ -73,18 +76,11 @@ public class DueloArena extends PApplet {
     boolean creatingConfirm = false;
     boolean createAccountError = false;
     String createAccountErrorMessage = "";
-    
-    boolean wasFocused = true;
 
     // Top 10 variables
     String[] top10Lines = {};
     boolean showTop10 = false;
 
-    String winnerMessage = "";
-    Button gameOverOkButton;
-    
-    int player1Score = 0, player2Score = 0;
-    
     // Modifier colors
     final color MOD_GREEN = color(0, 255, 0);    // Type 1
     final color MOD_ORANGE = color(255, 165, 0); // Type 2
@@ -101,6 +97,7 @@ public class DueloArena extends PApplet {
     Button logoutButton;
     Button deleteAccountButton;
     Button top10Button;
+    Button gameOverOkButton;
     
     class Projectile {
       public float x,y;
@@ -268,8 +265,6 @@ public class DueloArena extends PApplet {
     }
 
    void handleServerMessage(String message) {
-        //println("Server message: " + message);
-
         if (message.startsWith("SERVER_SHUTDOWN")) {
             // Reset all relevant variables
             try { if (socket != null) socket.close(); } catch (Exception e) {}
@@ -284,8 +279,6 @@ public class DueloArena extends PApplet {
             modifiers.clear();
             winnerMessage = "";
             queueButton.text = "Enter Queue";
-            // Reset any other game state variables you use
-            // ...
 
             // Reset input fields
             username = "";
@@ -299,7 +292,7 @@ public class DueloArena extends PApplet {
             // Go to IP input screen
             currentState = STATE_IP_INPUT;
 
-            JOptionPane.showMessageDialog(null, "O servidor foi desligado.");
+            JOptionPane.showMessageDialog(null, "Server was shut down.");
             return;
         } else if (message.startsWith("MATCHED")) {
           String[] parts = message.split(" ");
@@ -367,14 +360,14 @@ public class DueloArena extends PApplet {
                     
                     if (isPlayer1) {
                         playerX = p1X;
-                        playerY = p1Y + GUI_HEIGHT; // Add GUI offset
+                        playerY = p1Y + GUI_HEIGHT;
                         opponentX = p2X;
-                        opponentY = p2Y + GUI_HEIGHT; // Add GUI offset
+                        opponentY = p2Y + GUI_HEIGHT;
                     } else {
                         playerX = p2X;
-                        playerY = p2Y + GUI_HEIGHT; // Add GUI offset
+                        playerY = p2Y + GUI_HEIGHT;
                         opponentX = p1X;
-                        opponentY = p1Y + GUI_HEIGHT; // Add GUI offset
+                        opponentY = p1Y + GUI_HEIGHT;
                     }
                 } catch (Exception e) {
                     println("Error parsing positions: " + e);
@@ -427,7 +420,6 @@ public class DueloArena extends PApplet {
                 default: fill(150); // Default gray
             }
             
-            // Draw modifier as a circle
             ellipse(m.x, m.y + GUI_HEIGHT, MOD_SIZE, MOD_SIZE);
         }
     }
@@ -457,9 +449,9 @@ public class DueloArena extends PApplet {
         // Draw projectiles
         for (Projectile p : projectiles) {
             if (p.owner.equals(isPlayer1 ? loggedInUsername : opponentUsername)) {
-                fill(0, 0, 255); // Blue for player1's projectiles
+                fill(0, 0, 255); // Blue for player1 projectiles
             } else {
-                fill(255, 0, 0); // Red for player2's projectiles
+                fill(255, 0, 0); // Red for player2 projectiles
             }
             ellipse(p.x, p.y + GUI_HEIGHT, PROJ_SIZE, PROJ_SIZE);
         }
@@ -633,7 +625,6 @@ public class DueloArena extends PApplet {
         textSize(32);
         text("Server Connection", width/2, 100);
         
-        // IP field (show default value if empty)
         fill(255);
         rect(width/2 - 150, 200, 300, 40);
         fill(enteringIP ? 0 : 100);
@@ -642,7 +633,7 @@ public class DueloArena extends PApplet {
         String ipDisplay = inputIP.isEmpty() ? "" : inputIP;
         text(ipDisplay + (enteringIP ? "|" : ""), width/2 - 140, 220);
         
-        // Port field (show default value if empty)
+        // Port field
         fill(255);
         rect(width/2 - 150, 260, 300, 40);
         fill(!enteringIP ? 0 : 100);
@@ -691,7 +682,6 @@ public class DueloArena extends PApplet {
         String passwordDisplay = "";
         for (int i = 0; i < password.length(); i++) passwordDisplay += "*";
         text(password.isEmpty() ? (!enteringUsername ? "|" : "Password") : passwordDisplay, width/2 - 140, 280);
-        passwordDisplay = ""; // Clear the display variable
         
         // Login button
         loginButton.display();
@@ -751,20 +741,20 @@ public class DueloArena extends PApplet {
     void drawQueueScreen() {
         background(240);
         
-        // Title (unchanged)
+        // Title
         fill(0);
         textAlign(CENTER, CENTER);
         textSize(32);
         text("Matchmaking", width/2, 100);
         
-        // Queue status (unchanged)
+        // Queue status
         textSize(24);
         text(inQueue ? "Searching for opponent..." : "Press the button to queue", width/2, 180);
         
-        // Draw queue button (unchanged)
+        // Draw queue button
         queueButton.display();
         
-        // Draw logout and delete account buttons (unchanged)
+        // Draw logout and delete account buttons
         logoutButton.display();
         deleteAccountButton.display();
 
@@ -1022,7 +1012,6 @@ public class DueloArena extends PApplet {
 
       void handleProjectilesLaunchClick() {
           if (connected && out != null) {
-              // Use our own position (playerX/Y) since that's always correct for our player
               float centerX = playerX;
               float centerY = playerY;
       
@@ -1168,7 +1157,7 @@ public class DueloArena extends PApplet {
             enteringIP = !enteringIP;
         } else if (key == ENTER || key == RETURN) {
             attemptConnection();
-        } else if (key >= 32 && key <= 126) { // Printable characters
+        } else if ((key >= '0' && key <= '9') || key == '.') { // Only allow numbers and dots for IP
             if (enteringIP) {
                 inputIP += key;
             } else {
